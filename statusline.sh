@@ -6,8 +6,8 @@
 #  Powerline glyphs and a violet → blue → sumi-ink → orange palette.
 #
 #  LEFT CLUSTER  (priority anchors)
-#    [ ctx % ] → [ model (effort) ] → [ git branch ] → [ cwd basename ]
-#       violet         blue           dark-blue        sumi-ink5
+#    [ ctx % ] → [ model (effort) ] → [  branch ] → [  cwd basename ]
+#       violet         blue           dark-blue       sumi-ink5
 #
 #  RIGHT CLUSTER (lang gradient + warm exit)
 #    [ langs… (dark → light gray gradient) ] → [ cli version ] → [ caveman ]
@@ -366,8 +366,8 @@ add_left() { # <bg> <fg> <text>
 first_bg=""
 [ -n "$ctx_pct" ]  && { add_left "$CTX_BG" "$CTX_FG" " ${ctx_pct}%"; first_bg=$CTX_BG; }
 [ -n "$model" ]    && { add_left "$A_BG" "$A_FG" " $model"; [ -z "$first_bg" ] && first_bg=$A_BG; }
-[ -n "$branch" ]   && add_left "$B_BG" "$B_FG" " $branch"
-[ -n "$basename" ] && add_left "$C_BG" "$C_FG" " $basename"
+[ -n "$branch" ]   && add_left "$B_BG" "$B_FG" "  $branch"
+[ -n "$basename" ] && add_left "$C_BG" "$C_FG" "  $basename"
 # leading cap (left-pointing angle in first segment's bg on default bg) + trailing arrow off last segment
 if [ -n "$prev_bg" ]; then
   left_cap=$(printf '%s[38;5;%sm%s%s' "$ESC" "$first_bg" "$RSEP" "$RESET")
