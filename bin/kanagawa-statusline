@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# kanagawa-statusline — switch the active Kanagawa variant for the
+# Claude Code statusline. Writes ~/.config/kanagawa-statusline/config.
+# The statusline script reads this on every render, so the change picks
+# up on the next redraw (no explicit reload needed).
+#
+# usage:
+#   kanagawa-statusline wave       # cool night (default)
+#   kanagawa-statusline dragon     # warm earthy night
+#   kanagawa-statusline lotus      # light theme
+#   kanagawa-statusline off        # disable styling (empty output)
+#   kanagawa-statusline            # show current setting
+
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kanagawa-statusline"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+info() { printf '  • %s\n' "$*"; }
+
+mkdir -p "$CONFIG_DIR"
+
+current() {
+  if [ -f "$CONFIG_FILE" ]; then
+    grep -E '^VARIANT=' "$CONFIG_FILE" 2>/dev/null \
+      | tail -1 | cut -d= -f2-
+  fi
+}
+
+set_variant() {
+  printf 'VARIANT=%s\n' "$1" > "$CONFIG_FILE"
+  printf 'kanagawa-statusline: variant set to %s\n' "$1"
+  printf '  config: %s\n' "$CONFIG_FILE"
+  printf '  applies on next statusline render (press Enter at the prompt)\n'
+}
+
+case "${1:-}" in
+  wave|dragon|lotus|off)
+    set_variant "$1"
+    ;;
+  uninstall|remove)
+    STATUSLINE_FILE="$HOME/.claude/statusline-command.sh"
+    SETTINGS="$HOME/.claude/settings.json"
+    TMP_CACHE_GLOB="${TMPDIR:-/tmp}/cc-statusline-rt-*"
+
+    cat <<EOF
+kanagawa-statusline uninstall — this will remove:
+  - $STATUSLINE_FILE
+  - $0 (this CLI)
+  - $CONFIG_DIR/
+  - statusline runtime caches: $TMP_CACHE_GLOB
+
+settings.json (\$SETTINGS) will NOT be auto-edited. If your statusLine block
+references statusline-command.sh, remove it manually after this completes.
+EOF
+
+    if [ "${2:-}" != "--yes" ] && [ "${2:-}" != "-y" ]; then
+      printf '\nProceed? [y/N] '
+      read -r ans
+      case "$ans" in
+        [Yy]*) ;;
+        *) echo "aborted"; exit 0 ;;
+      esac
+    fi
+
+    rm -f "$STATUSLINE_FILE"   && info "removed $STATUSLINE_FILE"
+    rm -rf "$CONFIG_DIR"       && info "removed $CONFIG_DIR/"
+    # shellcheck disable=SC2086
+    rm -f $TMP_CACHE_GLOB 2>/dev/null && info "removed cache files"
+    self_path="$0"
+    rm -f "$self_path"         && info "removed $self_path"
+    printf '\nDone. Edit %s to drop the statusLine block if needed.\n' "$SETTINGS"
+    exit 0
+    ;;
+  ""|status)
+    cur=$(current)
+    if [ -n "$cur" ]; then
+      printf 'kanagawa-statusline: current variant = %s\n' "$cur"
+    else
+      printf 'kanagawa-statusline: no config set (defaulting to wave)\n'
+    fi
+    printf '  config file: %s\n' "$CONFIG_FILE"
+    ;;
+  -h|--help|help)
+    cat <<EOF
+kanagawa-statusline — switch Kanagawa variant for the Claude Code statusline.
+
+usage:
+  kanagawa-statusline wave            cool night (default)
+  kanagawa-statusline dragon          warm earthy night
+  kanagawa-statusline lotus           light theme
+  kanagawa-statusline off             disable styling
+  kanagawa-statusline status          show current setting
+  kanagawa-statusline uninstall [-y]  remove all installed files
+  kanagawa-statusline -h              this help
+
+config file:
+  \$XDG_CONFIG_HOME/kanagawa-statusline/config
+  (defaults to ~/.config/kanagawa-statusline/config)
+
+env override:
+  KANAGAWA_VARIANT=<variant> takes precedence over the config file.
+EOF
+    ;;
+  *)
+    printf 'kanagawa-statusline: unknown variant: %s\n' "$1" >&2
+    printf '  valid: wave | dragon | lotus | off\n' >&2
+    exit 1
+    ;;
+esac
