@@ -48,6 +48,11 @@
 #      (e.g. "caveman full"). Segment is skipped if flag file is absent or
 #      mode is "off". Symlinks rejected; mode whitelisted to block escape
 #      injection via the flag contents.
+#    • Update check: non-blocking, daily-cached probe of /VERSION on the
+#      repo. Renders an "update vX.Y.Z" segment when a newer release is
+#      available; run `kanagawa-statusline update` to self-update. Disable
+#      with KANAGAWA_NO_UPDATE_CHECK=1; tune cadence via KANAGAWA_UPDATE_TTL
+#      (seconds, default 86400).
 #    • Right-edge alignment via stty terminal width (independent of
 #      $COLUMNS being passed by Claude Code).
 #
@@ -55,6 +60,12 @@
 #    Caveman plugin — https://github.com/JuliusBrussee/caveman  (writes the
 #    flag file consumed for the badge; safe to omit, the segment is skipped).
 # ─────────────────────────────────────────────────────────────────────────
+
+# Kept in sync with /VERSION at the repo root. Update both together — the
+# remote check fetches /VERSION (cheap, ~10 bytes) and compares to this
+# constant. `kanagawa-statusline update` rewrites the whole script so this
+# value moves with each release.
+KANAGAWA_STATUSLINE_VERSION="0.0.1"
 
 input=$(cat)
 
@@ -144,6 +155,68 @@ else
 fi
 
 
+# ── update check ───────────────────────────────────────────────────────
+# Probe the repo for a newer release. Cheap and non-blocking:
+#   - cached result lives at $XDG_CACHE_HOME/kanagawa-statusline/latest-version
+#   - mtime of cache = age (default TTL 24h, override via KANAGAWA_UPDATE_TTL)
+#   - when stale, spawn a detached background curl that fetches /VERSION
+#     (~10 bytes) and rewrites the cache file. The current render uses the
+#     prior cache; the fresher value lands on the next render.
+#   - lock dir prevents concurrent fetches stacking up.
+#   - opt out entirely with KANAGAWA_NO_UPDATE_CHECK=1.
+# When the cached remote version is strictly newer than the embedded one,
+# `update_available` is set to the remote string and the right cluster
+# gains an "update vX.Y.Z" segment.
+update_available=""
+if [ "${KANAGAWA_NO_UPDATE_CHECK:-0}" != "1" ]; then
+  uc_dir="${XDG_CACHE_HOME:-$HOME/.cache}/kanagawa-statusline"
+  uc_file="$uc_dir/latest-version"
+  uc_lock="$uc_dir/check.lock"
+  uc_ttl="${KANAGAWA_UPDATE_TTL:-86400}"
+  uc_age=999999999
+  if [ -f "$uc_file" ]; then
+    uc_mtime=$(stat -f %m "$uc_file" 2>/dev/null || stat -c %Y "$uc_file" 2>/dev/null || echo 0)
+    uc_age=$(( $(date +%s) - uc_mtime ))
+  fi
+  if (( uc_age >= uc_ttl )) && command -v curl >/dev/null 2>&1; then
+    mkdir -p "$uc_dir" 2>/dev/null
+    # mkdir is atomic — first writer wins, others bail. Stale lock is
+    # cleared by the (mtime > 60s) guard so a crashed fetch doesn't wedge
+    # checks forever.
+    if [ -d "$uc_lock" ]; then
+      lock_mtime=$(stat -f %m "$uc_lock" 2>/dev/null || stat -c %Y "$uc_lock" 2>/dev/null || echo 0)
+      (( $(date +%s) - lock_mtime > 60 )) && rmdir "$uc_lock" 2>/dev/null
+    fi
+    if mkdir "$uc_lock" 2>/dev/null; then
+      uc_url="${KANAGAWA_VERSION_URL:-https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/VERSION}"
+      (
+        trap 'rmdir "$uc_lock" 2>/dev/null' EXIT
+        # tr -cd to whitelist semver chars defends against an MITM-tampered
+        # VERSION file leaking escape sequences into the next render.
+        remote=$(curl -fsSL --max-time 5 "$uc_url" 2>/dev/null \
+               | head -c 32 | tr -cd '0-9.')
+        if [ -n "$remote" ]; then
+          printf '%s' "$remote" > "$uc_file.tmp" \
+            && mv "$uc_file.tmp" "$uc_file"
+        else
+          # touch the file so we don't retry every render on persistent
+          # failure (no network, GitHub down, etc.) — wait out the TTL.
+          touch "$uc_file" 2>/dev/null
+        fi
+      ) >/dev/null 2>&1 </dev/null &
+      disown 2>/dev/null || true
+    fi
+  fi
+  if [ -f "$uc_file" ]; then
+    remote_ver=$(head -c 32 "$uc_file" 2>/dev/null | tr -cd '0-9.')
+    if [ -n "$remote_ver" ] && [ "$remote_ver" != "$KANAGAWA_STATUSLINE_VERSION" ]; then
+      newest=$(printf '%s\n%s\n' "$remote_ver" "$KANAGAWA_STATUSLINE_VERSION" \
+             | sort -V | tail -1)
+      [ "$newest" = "$remote_ver" ] && update_available="$remote_ver"
+    fi
+  fi
+fi
+
 # Caveman badge — read flag file directly so the badge always reflects the
 # CURRENT session state (level included), independent of any upstream plugin
 # script that may omit the suffix for default levels.
@@ -214,13 +287,14 @@ apply_palette() {
       Y_BG=179;    Y_FG=$SUMI_FG        # boatYellow2 — style
       Z_BG=173;    Z_FG=$SUMI_FG        # muted dusty orange — cli
       X_BG=215;    X_FG=$SUMI_FG        # surimiOrange — caveman
+      U_BG=167;    U_FG=$FUJI_WHITE     # samuraiRed — update available
       ;;
     dragon)
       # Dragon — warm earthy night. Reference colors:
       #   dragonViolet #8992A7, dragonBlue2 #8BA4B0, dragonAqua #8EA4A2,
       #   dragonBlack3..6 #181616..#625E5A, dragonOrange #B6927B,
       #   dragonOrange2 #B98D7B, dragonYellow #C4B28A, dragonGray #A6A69C,
-      #   dragonWhite #C5C9C5, dragonAsh #737C73.
+      #   dragonWhite #C5C9C5, dragonAsh #737C73, dragonRed #C4746E.
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=234
       CTX_BG=96;   CTX_FG=$FUJI_WHITE   # dragonViolet (#8992A7) — anchor
       A_BG=109;    A_FG=$SUMI_FG        # dragonBlue2 (#8BA4B0) — model
@@ -230,12 +304,14 @@ apply_palette() {
       Y_BG=144;    Y_FG=$SUMI_FG        # dragonYellow — style
       Z_BG=180;    Z_FG=$SUMI_FG        # dragonOrange2 (#B98D7B) — cli
       X_BG=173;    X_FG=$SUMI_FG        # dragonOrange (#B6927B) — caveman
+      U_BG=167;    U_FG=$FUJI_WHITE     # dragonRed (#C4746E) — update available
       ;;
     lotus)
       # Lotus — light/day. Reference colors:
       #   lotusViolet4 #624C83, lotusBlue4 #4D699B, lotusBlue3 #9FB5C9,
       #   lotusWhite0..5 #D5CEA3..#E4D794, lotusGray2 #716E61,
-      #   lotusOrange #CC6D00, lotusOrange2 #E98A00, lotusYellow3 #DE9800.
+      #   lotusOrange #CC6D00, lotusOrange2 #E98A00, lotusYellow3 #DE9800,
+      #   lotusRed #C84053.
       FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
       CTX_BG=60;   CTX_FG=255           # lotusViolet4 — anchor
       A_BG=24;     A_FG=255             # lotusBlue4 — model
@@ -245,6 +321,7 @@ apply_palette() {
       Y_BG=178;    Y_FG=$SUMI_FG        # lotusYellow3 — style
       Z_BG=208;    Z_FG=$SUMI_FG        # lotusOrange2 — cli
       X_BG=166;    X_FG=255             # lotusOrange (#CC6D00) — caveman
+      U_BG=124;    U_FG=255             # lotusRed (#C84053) — update available
       ;;
     *)
       printf 'statusline: unknown KANAGAWA_VARIANT=%s (use: wave|dragon|lotus)\n' \
@@ -351,6 +428,8 @@ build_right_data() {
     seg_keys+=(style); seg_data+=("$Y_BG|$Y_FG| $style"); }
   [ -n "$ver" ]   && { seg_keys+=(cli);   seg_data+=("$Z_BG|$Z_FG| cli v$ver"); }
   [ -n "$badge" ] && { seg_keys+=(badge); seg_data+=("$X_BG|$X_FG| $badge"); }
+  [ -n "$update_available" ] && {
+    seg_keys+=(update); seg_data+=("$U_BG|$U_FG|  v$update_available"); }
 }
 
 build_right() {

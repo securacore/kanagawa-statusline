@@ -1,0 +1,128 @@
+name: release
+
+# Fires when a tag like v0.0.1 / v1.2.3 is pushed.
+# Validates VERSION + script constant match the tag, lints, then publishes
+# a GitHub Release with notes generated from commits since the previous tag.
+# The raw files on `main` are what `kanagawa-statusline update` pulls — the
+# release acts as the human-facing changelog and asset archive.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)release, e.g. v0.0.1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version sync
+        run: |
+          set -e
+          tag="${{ steps.tag.outputs.tag }}"
+          version="${{ steps.tag.outputs.version }}"
+          file_ver=$(tr -cd '0-9.' < VERSION)
+          script_ver=$(grep -E '^KANAGAWA_STATUSLINE_VERSION=' statusline.sh \
+                     | head -1 \
+                     | sed -E 's/^[^=]+="?([^"]*)"?[[:space:]]*$/\1/' \
+                     | tr -cd '0-9.')
+          printf 'tag=%s VERSION=%s script=%s\n' "$version" "$file_ver" "$script_ver"
+          if [ "$version" != "$file_ver" ]; then
+            echo "::error::tag $version does not match VERSION file ($file_ver)"
+            exit 1
+          fi
+          if [ "$version" != "$script_ver" ]; then
+            echo "::error::tag $version does not match KANAGAWA_STATUSLINE_VERSION ($script_ver) in statusline.sh"
+            exit 1
+          fi
+
+      - name: Shell lint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          # -S warning keeps the bar reasonable; tighten to `style` later if desired.
+          shellcheck -S warning statusline.sh install.sh bin/kanagawa-statusline
+
+      - name: Syntax check
+        run: |
+          bash -n statusline.sh
+          bash -n install.sh
+          bash -n bin/kanagawa-statusline
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          prev=$(git tag --sort=-creatordate | grep -v "^${tag}\$" | head -1 || true)
+          {
+            echo "## ${tag}"
+            echo
+            if [ -n "$prev" ]; then
+              echo "Changes since \`${prev}\`:"
+              echo
+              git log --pretty=format:'- %s (%h)' "${prev}..${tag}"
+            else
+              echo "Initial release."
+              echo
+              git log --pretty=format:'- %s (%h)' "${tag}"
+            fi
+            echo
+            echo
+            echo "### Install"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash"
+            echo '```'
+            echo
+            echo "### Self-update from a prior release"
+            echo
+            echo '```sh'
+            echo "kanagawa-statusline update"
+            echo '```'
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Create / update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          # Stage assets under their distributed names (gh release upload uses basename).
+          mkdir -p dist
+          cp statusline.sh         dist/statusline.sh
+          cp install.sh            dist/install.sh
+          cp bin/kanagawa-statusline dist/kanagawa-statusline
+          cp VERSION               dist/VERSION
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "$tag" \
+              --notes-file RELEASE_NOTES.md
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes-file RELEASE_NOTES.md \
+              dist/*
+          fi
