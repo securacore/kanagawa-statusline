@@ -43,15 +43,17 @@
 #    • Graceful degradation: if right cluster overruns the line, langs are
 #      dropped one at a time (lowest priority first per drop_order) until
 #      content fits. Caveman + cli always preserved.
-#    • Caveman badge sourced from ~/.claude/plugins/marketplaces/caveman/
-#      hooks/caveman-statusline.sh (optional — falls through if absent).
+#    • Caveman badge read directly from $CLAUDE_CONFIG_DIR/.caveman-active
+#      (defaults to ~/.claude/.caveman-active). Always shows current level
+#      (e.g. "caveman full"). Segment is skipped if flag file is absent or
+#      mode is "off". Symlinks rejected; mode whitelisted to block escape
+#      injection via the flag contents.
 #    • Right-edge alignment via stty terminal width (independent of
 #      $COLUMNS being passed by Claude Code).
 #
 #  DEPENDENCIES (optional)
-#    Caveman plugin — https://github.com/.../caveman  (badge only; safe to
-#    omit. The corresponding right segment is skipped if the script isn't
-#    found.)
+#    Caveman plugin — https://github.com/JuliusBrussee/caveman  (writes the
+#    flag file consumed for the badge; safe to omit, the segment is skipped).
 # ─────────────────────────────────────────────────────────────────────────
 
 input=$(cat)
@@ -142,13 +144,28 @@ else
 fi
 
 
-# Caveman badge (raw text like "[CAVEMAN:LITE]" or empty)
-CAVEMAN_SCRIPT="$HOME/.claude/plugins/marketplaces/caveman/hooks/caveman-statusline.sh"
+# Caveman badge — read flag file directly so the badge always reflects the
+# CURRENT session state (level included), independent of any upstream plugin
+# script that may omit the suffix for default levels.
+#
+# Source of truth: $CLAUDE_CONFIG_DIR/.caveman-active (single line, mode name).
+# Security: refuse symlinks, cap at 64 bytes, whitelist mode against a fixed
+# allowlist — prevents an attacker who can write the flag file from injecting
+# terminal escapes or OSC hyperlinks into every render.
+CAVEMAN_FLAG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.caveman-active"
 badge=""
-if [ -f "$CAVEMAN_SCRIPT" ]; then
-  badge=$(bash "$CAVEMAN_SCRIPT" 2>/dev/null \
-        | LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' \
-        | tr -d '[]' | tr ':' ' ' | tr '[:upper:]' '[:lower:]')
+if [ -f "$CAVEMAN_FLAG" ] && [ ! -L "$CAVEMAN_FLAG" ]; then
+  cm_mode=$(head -c 64 "$CAVEMAN_FLAG" 2>/dev/null \
+          | tr -d '\n\r' \
+          | tr '[:upper:]' '[:lower:]' \
+          | tr -cd 'a-z0-9-')
+  case "$cm_mode" in
+    lite|full|ultra|wenyan-lite|wenyan|wenyan-full|wenyan-ultra|commit|review|compress)
+      badge="caveman $cm_mode"
+      ;;
+    off|"") ;;
+    *) ;;  # unknown mode → render nothing rather than echo attacker bytes
+  esac
 fi
 
 # ── palette (tokyonight-ish) ────────────────────────────────────────────
