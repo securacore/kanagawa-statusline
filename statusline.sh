@@ -377,17 +377,22 @@ strip_ansi() { printf '%s' "$1" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g'; }
 visible_len() {
   local s
   s=$(strip_ansi "$1")
-  python3 -c 'import sys, unicodedata
+  # PUA glyph width: 1 for "Mono" nerd-font variants (default), 2 for non-Mono.
+  local pua_w="${KANAGAWA_PUA_WIDTH:-1}"
+  PUA_W="$pua_w" python3 -c 'import os, sys, unicodedata
 s=sys.argv[1]
+pua_w=int(os.environ.get("PUA_W","1"))
 n=0
 for ch in s:
     cp = ord(ch)
-    if unicodedata.category(ch).startswith("C"): continue
+    cat = unicodedata.category(ch)
+    # Skip true non-printing categories. Do NOT skip "Co" (Private Use) —
+    # those are nerd-font glyphs that render visibly.
+    if cat in ("Cc","Cf","Cs","Cn"): continue
     if unicodedata.east_asian_width(ch) in ("W","F"):
         n += 2
-    elif 0xE000 <= cp <= 0xF8FF or 0xF0000 <= cp <= 0xFFFFD:
-        # Nerd Font / private-use glyphs render at 2 cells in patched fonts
-        n += 2
+    elif cat == "Co" or 0xE000 <= cp <= 0xF8FF or 0xF0000 <= cp <= 0xFFFFD:
+        n += pua_w
     else:
         n += 1
 print(n)' "$s" 2>/dev/null || printf '%s' "$s" | wc -m
@@ -397,8 +402,9 @@ cols=$( { stty size </dev/tty | awk '{print $2}'; } 2>/dev/null )
 [[ "$cols" =~ ^[0-9]+$ ]] || cols="${COLUMNS:-}"
 [[ "$cols" =~ ^[0-9]+$ ]] || cols=$(tput cols 2>/dev/null || echo 120)
 (( cols < 1 )) && cols=120
-# Claude Code statusline container chrome (left margin + right margin)
-cols=$(( cols - 19 ))
+# Claude Code statusline container chrome (left margin + right margin).
+# Override via env if your terminal renders with more/less padding.
+cols=$(( cols - ${KANAGAWA_CHROME:-4} ))
 
 lvis=$(visible_len "$left")
 while :; do

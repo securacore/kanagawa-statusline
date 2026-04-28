@@ -53,12 +53,12 @@ Cli, caveman, and style segments are never dropped (kept off the order list).
 
 ## Right-edge alignment
 
-True terminal width comes from `stty size </dev/tty` (works inside Claude Code's spawned subshell where `$COLUMNS` is unset). A small chrome buffer (`cols=$(( cols - N ))`) accounts for Claude Code's TUI margins. Tunable per-terminal if your renderer is different.
+True terminal width comes from `stty size </dev/tty` (works inside Claude Code's spawned subshell where `$COLUMNS` is unset). A small chrome buffer (`cols - $KANAGAWA_CHROME`, default `4` — covers Claude Code's left+right TUI margins). Tunable per-terminal if your renderer is different.
+
+Visible widths use a python helper that respects East Asian Width *and* maps Private Use Area glyphs (nerd-font icons) to `$KANAGAWA_PUA_WIDTH` cells (default `1`, suits Mono nerd-font variants). Set `KANAGAWA_PUA_WIDTH=2` if your font renders icons double-wide.
 
 > [!NOTE]
-> The default buffer is calibrated against Ghostty + a patched nerd font. If your terminal renders Powerline glyphs at different widths or your TUI chrome differs, adjust `cols=$(( cols - N ))` near the bottom of `statusline.sh`.
-
-Visible widths use a python helper that respects East Asian Width *and* maps Private Use Area glyphs (nerd-font icons) to 2 cells, since they typically render double-wide in patched fonts but `unicodedata` reports them as 1.
+> Defaults are calibrated for Mono nerd-font variants in Ghostty/iTerm2/etc. If alignment is off, tune `KANAGAWA_CHROME` (TUI padding) and `KANAGAWA_PUA_WIDTH` (glyph width) until the right cluster sits flush against the right edge.
 
 ## Variant palettes
 
@@ -85,7 +85,8 @@ All tunables sit near the top of `statusline.sh`.
 | `KANAGAWA_VARIANT`       | env override — wave / dragon / lotus / off                                     |
 | `apply_palette()` cases  | Per-variant color tokens (CTX_BG, A_BG, B_BG, C_BG, GRAD_MIN/MAX, Y/Z/X)       |
 | `drop_order`             | Lang priority for graceful degradation (first dropped first)                   |
-| `cols=$(( cols - N ))`   | Chrome buffer for right-edge alignment                                         |
+| `KANAGAWA_CHROME`        | Chrome buffer for right-edge alignment (default `4`)                           |
+| `KANAGAWA_PUA_WIDTH`     | Cell width for nerd-font PUA glyphs (default `1`; set `2` for non-Mono fonts)  |
 | `STATUSLINE_DEMO=1`      | Env flag — preview all 7 lang segments with placeholder versions               |
 
 ## JSON fields consumed
