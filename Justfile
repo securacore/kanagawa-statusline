@@ -3,11 +3,15 @@
 # Install just: https://github.com/casey/just  (`brew install just`)
 #
 # usage:
-#   just                       # list recipes
-#   just version               # show current version
-#   just lint                  # shellcheck + bash -n
-#   just release 0.1.0         # bump → commit → tag → push (kicks GHA)
-#   just release-dry 0.1.0     # preview the bump without touching anything
+#   just                  # list recipes
+#   just version          # show currently-checked-in version
+#   just lint             # shellcheck + bash -n
+#   just release          # +1 patch (default)
+#   just release patch    # +1 patch
+#   just release minor    # +1 minor, reset patch
+#   just release major    # +1 major, reset minor + patch
+#   just release-dry      # preview the patch bump
+#   just release-dry minor
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -34,49 +38,51 @@ lint:
     bash -n bin/kanagawa-statusline
     @echo "lint ok"
 
-# Show what `just release <version>` would change, without touching anything.
-release-dry VERSION:
-    @just _release-validate "{{VERSION}}"
-    @cur_file=$(tr -cd '0-9.' < VERSION); \
+# Show what `just release <level>` would change, without touching anything.
+release-dry LEVEL="patch":
+    @new=$(just _next-version "{{LEVEL}}"); \
+     cur_file=$(tr -cd '0-9.' < VERSION); \
      cur_script=$(grep -E '^KANAGAWA_STATUSLINE_VERSION=' statusline.sh \
                 | head -1 \
                 | sed -E 's/^[^=]+=\"?([^\"]*)\"?[[:space:]]*$/\1/' \
                 | tr -cd '0-9.'); \
-     printf 'would bump:\n  VERSION:        %s -> %s\n  statusline.sh:  %s -> %s\n  commit:         "Release v%s"\n  tag:            v%s\n  then push branch + tag (kicks .github/workflows/release.yml)\n' \
-       "$cur_file" "{{VERSION}}" "$cur_script" "{{VERSION}}" "{{VERSION}}" "{{VERSION}}"
+     printf 'would bump (%s):\n  VERSION:        %s -> %s\n  statusline.sh:  %s -> %s\n  commit:         "Release v%s"\n  tag:            v%s\n  then push branch + tag (kicks .github/workflows/release.yml)\n' \
+       "{{LEVEL}}" "$cur_file" "$new" "$cur_script" "$new" "$new" "$new"
 
-# Bump version, commit, tag, push — tag push fires the GHA release workflow.
-release VERSION:
-    @just _release-validate "{{VERSION}}"
+# Bump VERSION + the embedded constant, commit, tag, push — tag push fires the GHA release workflow.
+release LEVEL="patch":
     @just _release-clean-tree
-    @just _release-bump "{{VERSION}}"
-    git add VERSION statusline.sh
-    git commit -m "Release v{{VERSION}}"
-    git tag -a "v{{VERSION}}" -m "v{{VERSION}}"
-    git push
-    git push origin "v{{VERSION}}"
-    @echo
-    @echo "pushed v{{VERSION}} — release workflow:"
-    @echo "  https://github.com/securacore/kanagawa-statusline/actions/workflows/release.yml"
+    @new=$(just _next-version "{{LEVEL}}"); \
+     printf 'bumping (%s) → %s\n' "{{LEVEL}}" "$new"; \
+     just _release-bump "$new"; \
+     git add VERSION statusline.sh; \
+     git commit -m "Release v$new"; \
+     git tag -a "v$new" -m "v$new"; \
+     git push; \
+     git push origin "v$new"; \
+     printf '\npushed v%s — release workflow:\n  https://github.com/securacore/kanagawa-statusline/actions/workflows/release.yml\n' "$new"
 
 # ── private helpers (underscore-prefixed → hidden from `just --list`) ──
 
-_release-validate VERSION:
-    @if ! [[ "{{VERSION}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then \
-        echo "version must be plain semver (e.g. 0.1.0), got: {{VERSION}}" >&2; \
-        exit 2; \
-    fi
+# Compute the next version from the current VERSION file + a bump level.
+# Echoes the bumped version (e.g. "0.2.0"). Exits non-zero on bad input.
+[private]
+_next-version LEVEL:
     @cur=$(tr -cd '0-9.' < VERSION); \
-     newest=$(printf '%s\n%s\n' "$cur" "{{VERSION}}" | sort -V | tail -1); \
-     if [ "$newest" != "{{VERSION}}" ] && [ "$cur" != "{{VERSION}}" ]; then \
-        echo "{{VERSION}} is older than current $cur" >&2; \
+     if ! [[ "$cur" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then \
+        echo "VERSION file is not plain semver: '$cur'" >&2; \
         exit 1; \
      fi; \
-     if [ "$cur" = "{{VERSION}}" ]; then \
-        echo "{{VERSION}} matches current VERSION — nothing to bump" >&2; \
-        exit 1; \
-     fi
+     IFS=. read -r MAJ MIN PATCH <<< "$cur"; \
+     case "{{LEVEL}}" in \
+       patch) PATCH=$((PATCH + 1)) ;; \
+       minor) MIN=$((MIN + 1)); PATCH=0 ;; \
+       major) MAJ=$((MAJ + 1)); MIN=0; PATCH=0 ;; \
+       *) echo "level must be patch|minor|major (got: {{LEVEL}})" >&2; exit 2 ;; \
+     esac; \
+     printf '%s.%s.%s\n' "$MAJ" "$MIN" "$PATCH"
 
+[private]
 _release-clean-tree:
     @if [ -n "$(git status --porcelain)" ]; then \
         echo "working tree is dirty; commit or stash first" >&2; \
@@ -88,6 +94,8 @@ _release-clean-tree:
         echo "warning: releasing from branch '$branch' (not main)" >&2; \
      fi
 
+# Rewrite VERSION + the embedded constant in statusline.sh, then verify.
+[private]
 _release-bump VERSION:
     printf '%s\n' "{{VERSION}}" > VERSION
     @# Portable in-place edit — macOS sed and GNU sed disagree on -i.
@@ -95,7 +103,6 @@ _release-bump VERSION:
     sed -E 's/^(KANAGAWA_STATUSLINE_VERSION=)"[^"]*"/\1"{{VERSION}}"/' statusline.sh > "$tmp"; \
     mv "$tmp" statusline.sh; \
     chmod +x statusline.sh
-    @# Verify both bumps landed.
     @got=$(grep -E '^KANAGAWA_STATUSLINE_VERSION=' statusline.sh \
          | head -1 \
          | sed -E 's/^[^=]+="?([^"]*)"?[[:space:]]*$/\1/'); \

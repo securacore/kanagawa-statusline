@@ -81,6 +81,7 @@ kanagawa-statusline uninstall — this will remove:
   - $STATUSLINE_FILE
   - $0 (this CLI)
   - $CONFIG_DIR/
+  - $CACHE_DIR/ (update-check cache)
   - statusline runtime caches: $TMP_CACHE_GLOB
 
 settings.json (\$SETTINGS) will NOT be auto-edited. If your statusLine block
@@ -98,6 +99,7 @@ EOF
 
     rm -f "$STATUSLINE_FILE"   && info "removed $STATUSLINE_FILE"
     rm -rf "$CONFIG_DIR"       && info "removed $CONFIG_DIR/"
+    rm -rf "$CACHE_DIR"        && info "removed $CACHE_DIR/"
     # shellcheck disable=SC2086
     rm -f $TMP_CACHE_GLOB 2>/dev/null && info "removed cache files"
     self_path="$0"

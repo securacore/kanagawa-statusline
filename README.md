@@ -12,6 +12,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code) statusline themed a
 - **Dynamic gradient** — N visible language segments map to N evenly-spaced gray stops
 - **Graceful degradation** — drops lower-priority segments when the line gets narrow
 - **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|off>`
+- **Update check + self-update** — daily background probe of the repo; renders an `update vX.Y.Z` segment when a new release lands. `kanagawa-statusline update` swaps in the latest version.
 
 ## Requirements
 
@@ -36,7 +37,10 @@ kanagawa-statusline wave        # cool night (default)
 kanagawa-statusline dragon      # warm earthy night
 kanagawa-statusline lotus       # light theme
 kanagawa-statusline off         # disable styling
-kanagawa-statusline status      # show current variant
+kanagawa-statusline status      # show current variant + installed version
+kanagawa-statusline version     # print installed version
+kanagawa-statusline check       # check for a new release (synchronous)
+kanagawa-statusline update      # self-update statusline + CLI to latest
 kanagawa-statusline uninstall   # remove all installed files
 ```
 
@@ -47,7 +51,22 @@ kanagawa-statusline uninstall   # remove all installed files
 
 ## Optional dependencies
 
-- [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) — provides the orange caveman badge. Statusline reads the plugin's hook if installed; segment is silently skipped if absent.
+- [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) — writes the `~/.claude/.caveman-active` flag file consumed by the caveman badge segment. Statusline reads it directly so the badge always shows the current level (e.g. `caveman full`); segment is silently skipped if absent.
+
+## Maintainers
+
+Releases are driven by a `Justfile`:
+
+```bash
+just release          # +1 patch (default)
+just release patch    # +1 patch
+just release minor    # +1 minor, reset patch
+just release major    # +1 major, reset minor + patch
+just release-dry      # preview the bump (accepts the same levels)
+just lint             # shellcheck + bash -n
+```
+
+Each `just release <level>` bumps `VERSION` and the embedded `KANAGAWA_STATUSLINE_VERSION` constant in lockstep, commits `Release vX.Y.Z`, tags `vX.Y.Z`, and pushes the branch + tag. The tag push fires `.github/workflows/release.yml`, which validates the three-way version sync (tag ↔ `VERSION` ↔ constant), lints, and publishes a GitHub Release with assets attached.
 
 ## License
 
