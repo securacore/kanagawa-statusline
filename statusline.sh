@@ -72,10 +72,9 @@ input=$(cat)
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 effort=$(printf '%s' "$input" | jq -r '.effort.level // ""')
 [ -n "$effort" ] && model="$model ($effort)"
-proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
 # ── parse JSON from Claude Code (piped via stdin) ──────────────────────
 # Field schema: https://docs.claude.com/en/docs/claude-code/statusline
-cwd=$(printf '%s'  "$input" | jq -r '.workspace.current_dir // .cwd // ""')
+proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
 ver=$(printf '%s'  "$input" | jq -r '.version // ""')
 style=$(printf '%s' "$input" | jq -r '(.output_style.name // .output_style // "") | if type=="string" then . else "" end' | tr -d '\n\r')
 ctx_pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
@@ -134,6 +133,7 @@ if [ "${STATUSLINE_DEMO:-0}" = 1 ]; then
   go_v="1.23.0";   rust_v="1.75.0"
   zig_v="0.13.0";  odin_v="dev-2024"
 elif [ "$cache_age" -lt 300 ]; then
+  # shellcheck source=/dev/null
   . "$cache_file"
 else
   [ "$uses_node" = 1 ] && command -v node    >/dev/null 2>&1 && node_v=$(node --version 2>/dev/null | tr -d 'v\n')
