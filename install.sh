@@ -5,13 +5,13 @@
 # snippet you need to add. Idempotent — safe to re-run for upgrades.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<user>/kanagawa-statusline/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/install.sh | bash
 #   # or, after cloning:
 #   bash install.sh
 
 set -euo pipefail
 
-REPO_RAW="${KANAGAWA_STATUSLINE_REPO_RAW:-https://raw.githubusercontent.com/<your-username>/kanagawa-statusline/main}"
+REPO_RAW="${KANAGAWA_STATUSLINE_REPO_RAW:-https://raw.githubusercontent.com/securacore/kanagawa-statusline/main}"
 DEST_DIR="$HOME/.claude"
 DEST_FILE="$DEST_DIR/statusline-command.sh"
 BIN_DIR="${KANAGAWA_STATUSLINE_BIN:-$HOME/.local/bin}"

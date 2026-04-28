@@ -21,7 +21,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code) statusline themed a
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<your-username>/kanagawa-statusline/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/install.sh | bash
 ```
 
 The installer drops the script into `~/.claude/`, the CLI into `~/.local/bin/`, and merges a `statusLine` block into `~/.claude/settings.json`.
