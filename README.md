@@ -2,6 +2,14 @@
 
 ![Kanagawa Wave theme — preview](docs/preview.png)
 
+### Lean variant — `kanagawa-statusline wave-lean`
+
+![Kanagawa Wave Lean theme — preview](docs/preview-lean.png)
+
+### Xlean variant — `kanagawa-statusline wave-xlean`
+
+![Kanagawa Wave Xlean theme — preview](docs/preview-xlean.png)
+
 A simple [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI statusline themed after [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). Lualine-inspired Powerline rendering with three Kanagawa palettes (each in three forms: full powerline, muted `-lean`, text-only `-xlean`), dynamic per-project runtime detection, and graceful degradation on narrow terminals.
 
 ## Install
