@@ -4,15 +4,20 @@
 
 | variant  | mood                       | best for                                         |
 |----------|----------------------------|--------------------------------------------------|
-| `wave`        | night, cool, violet+blue        | dark terminals (most users — default)            |
-| `dragon`      | night, warm, earthy             | dark terminals, warmer/desaturated tones         |
-| `lotus`       | day, light                      | light terminal backgrounds                       |
-| `wave-lean`   | muted sumiInk mono + wave fgs   | dark terminals, stealth aesthetic                |
-| `dragon-lean` | muted dragonBlack mono + dragon fgs | dark terminals, warm stealth aesthetic       |
-| `lotus-lean`  | muted lotusWhite mono + lotus fgs   | light terminals, low-saturation aesthetic    |
-| `off`         | disabled                        | hide the statusline entirely (empty output)      |
+| `wave`         | night, cool, violet+blue            | dark terminals (most users — default)        |
+| `dragon`       | night, warm, earthy                 | dark terminals, warmer/desaturated tones     |
+| `lotus`        | day, light                          | light terminal backgrounds                   |
+| `wave-lean`    | muted sumiInk mono + wave fgs       | dark terminals, stealth aesthetic            |
+| `dragon-lean`  | muted dragonBlack mono + dragon fgs | dark terminals, warm stealth aesthetic       |
+| `lotus-lean`   | muted lotusWhite mono + lotus fgs   | light terminals, low-saturation aesthetic    |
+| `wave-xlean`   | text-only, wave fg accents          | minimalists; segments split by ` │ ` divider |
+| `dragon-xlean` | text-only, dragon fg accents        | minimalists; segments split by ` │ ` divider |
+| `lotus-xlean`  | text-only, lotus fg accents         | minimalists on light terminals               |
+| `off`          | disabled                            | hide the statusline entirely (empty output)  |
 
-Each `*-lean` palette uses a single-family monochromatic ramp for backgrounds (sumiInk for wave/dragon, lotusWhite for lotus) and low-contrast accent foregrounds. Powerline structure (bg fills + arrow separators) is identical to the base variants.
+Each `*-lean` palette uses a single-family monochromatic ramp for backgrounds (sumiInk for wave/dragon, lotusWhite for lotus) with low-contrast accent foregrounds; powerline structure (bg fills + arrow separators) is preserved.
+
+Each `*-xlean` palette runs in text mode: no bg fills, no powerline arrows. Segments render as fg-only colored text glued by ` │ ` (vertical bar in muted gray for dark bases, muted tan for `lotus-xlean`).
 
 ## CLI
 
@@ -23,6 +28,9 @@ kanagawa-statusline lotus           # set variant (light theme)
 kanagawa-statusline wave-lean       # set variant (wave, muted dark mono)
 kanagawa-statusline dragon-lean     # set variant (dragon, muted dark mono)
 kanagawa-statusline lotus-lean      # set variant (lotus, muted light mono)
+kanagawa-statusline wave-xlean      # set variant (wave, text-only + divider)
+kanagawa-statusline dragon-xlean    # set variant (dragon, text-only + divider)
+kanagawa-statusline lotus-xlean     # set variant (lotus, text-only + divider)
 kanagawa-statusline off             # disable styling
 kanagawa-statusline status          # show current setting + installed version
 kanagawa-statusline version         # print installed version
@@ -90,7 +98,7 @@ The statusline runs a non-blocking, daily-cached probe of `/VERSION` on the repo
 ## Preview all variants
 
 ```bash
-for v in wave dragon lotus wave-lean dragon-lean lotus-lean; do
+for v in wave dragon lotus wave-lean dragon-lean lotus-lean wave-xlean dragon-xlean lotus-xlean; do
   printf '\n--- %s ---\n' "$v"
   printf '{"model":{"display_name":"Opus 4.7"},"workspace":{"project_dir":"."},"effort":{"level":"xhigh"},"version":"2.1.121","context_window":{"used_percentage":42}}' \
     | KANAGAWA_VARIANT=$v STATUSLINE_DEMO=1 bash ~/.claude/statusline-command.sh

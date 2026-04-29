@@ -5,14 +5,17 @@
 # up on the next redraw (no explicit reload needed).
 #
 # usage:
-#   kanagawa-statusline wave         # cool night (default)
-#   kanagawa-statusline dragon       # warm earthy night
-#   kanagawa-statusline lotus        # light theme
-#   kanagawa-statusline wave-lean    # muted dark monochromatic (wave)
-#   kanagawa-statusline dragon-lean  # muted dark monochromatic (dragon)
-#   kanagawa-statusline lotus-lean   # muted light monochromatic (lotus)
-#   kanagawa-statusline off          # disable styling (empty output)
-#   kanagawa-statusline              # show current setting
+#   kanagawa-statusline wave          # cool night (default)
+#   kanagawa-statusline dragon        # warm earthy night
+#   kanagawa-statusline lotus         # light theme
+#   kanagawa-statusline wave-lean     # wave, muted dark monochromatic
+#   kanagawa-statusline dragon-lean   # dragon, muted dark monochromatic
+#   kanagawa-statusline lotus-lean    # lotus, muted light monochromatic
+#   kanagawa-statusline wave-xlean    # wave, text-only with ` │ ` divider
+#   kanagawa-statusline dragon-xlean  # dragon, text-only with ` │ ` divider
+#   kanagawa-statusline lotus-xlean   # lotus, text-only with ` │ ` divider
+#   kanagawa-statusline off           # disable styling (empty output)
+#   kanagawa-statusline               # show current setting
 
 set -euo pipefail
 
@@ -71,7 +74,7 @@ set_variant() {
 }
 
 case "${1:-}" in
-  wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|off)
+  wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|wave-xlean|dragon-xlean|lotus-xlean|off)
     set_variant "$1"
     ;;
   uninstall|remove)
@@ -224,9 +227,12 @@ usage:
   kanagawa-statusline wave              cool night (default)
   kanagawa-statusline dragon            warm earthy night
   kanagawa-statusline lotus             light theme
-  kanagawa-statusline wave-lean         muted dark monochromatic (wave)
-  kanagawa-statusline dragon-lean       muted dark monochromatic (dragon)
-  kanagawa-statusline lotus-lean        muted light monochromatic (lotus)
+  kanagawa-statusline wave-lean         wave, muted dark monochromatic
+  kanagawa-statusline dragon-lean       dragon, muted dark monochromatic
+  kanagawa-statusline lotus-lean        lotus, muted light monochromatic
+  kanagawa-statusline wave-xlean        wave, text-only with ` │ ` divider
+  kanagawa-statusline dragon-xlean      dragon, text-only with ` │ ` divider
+  kanagawa-statusline lotus-xlean       lotus, text-only with ` │ ` divider
   kanagawa-statusline off               disable styling
   kanagawa-statusline status            show current setting + version
   kanagawa-statusline version           print installed version
@@ -248,7 +254,9 @@ EOF
     ;;
   *)
     printf 'kanagawa-statusline: unknown variant: %s\n' "$1" >&2
-    printf '  valid: wave | dragon | lotus | wave-lean | dragon-lean | lotus-lean | off\n' >&2
+    printf '  valid: wave | dragon | lotus\n' >&2
+    printf '         wave-lean | dragon-lean | lotus-lean\n' >&2
+    printf '         wave-xlean | dragon-xlean | lotus-xlean | off\n' >&2
     exit 1
     ;;
 esac

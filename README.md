@@ -2,7 +2,7 @@
 
 ![Kanagawa Wave theme — preview](docs/preview.png)
 
-A simple [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI statusline themed after [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). Lualine-inspired Powerline rendering with three Kanagawa palettes (each available in a `-lean` muted form), dynamic per-project runtime detection, and graceful degradation on narrow terminals.
+A simple [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI statusline themed after [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). Lualine-inspired Powerline rendering with three Kanagawa palettes (each in three forms: full powerline, muted `-lean`, text-only `-xlean`), dynamic per-project runtime detection, and graceful degradation on narrow terminals.
 
 ## Install
 
@@ -13,13 +13,16 @@ curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main
 ## Basic Usage
 
 ```bash
-kanagawa-statusline wave        # cool night (default)
-kanagawa-statusline dragon      # warm earthy night
-kanagawa-statusline lotus       # light theme
-kanagawa-statusline wave-lean   # muted dark mono (wave family)
-kanagawa-statusline dragon-lean # muted dark mono (dragon family)
-kanagawa-statusline lotus-lean  # muted light mono (lotus family)
-kanagawa-statusline off         # disable styling
+kanagawa-statusline wave         # cool night (default)
+kanagawa-statusline dragon       # warm earthy night
+kanagawa-statusline lotus        # light theme
+kanagawa-statusline wave-lean    # muted dark mono (wave family)
+kanagawa-statusline dragon-lean  # muted dark mono (dragon family)
+kanagawa-statusline lotus-lean   # muted light mono (lotus family)
+kanagawa-statusline wave-xlean   # text-only with ` │ ` divider (wave fgs)
+kanagawa-statusline dragon-xlean # text-only with ` │ ` divider (dragon fgs)
+kanagawa-statusline lotus-xlean  # text-only with ` │ ` divider (lotus fgs)
+kanagawa-statusline off          # disable styling
 kanagawa-statusline status      # show current variant + installed version
 kanagawa-statusline version     # print installed version
 kanagawa-statusline check       # check for a new release (synchronous)
@@ -29,11 +32,11 @@ kanagawa-statusline uninstall   # remove all installed files
 
 ## Highlights
 
-- **Kanagawa palettes** — `wave`, `dragon`, `lotus`, each with a `-lean` muted/monochromatic form
+- **Kanagawa palettes** — `wave`, `dragon`, `lotus`, each in three forms: full powerline, `-lean` (muted/monochromatic), `-xlean` (text-only with divider)
 - **Per-project runtime detection** — node, bun, python, go, rust, zig, odin
 - **Dynamic gradient** — N visible language segments map to N evenly-spaced gray stops
 - **Graceful degradation** — drops lower-priority segments when the line gets narrow
-- **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|off>`
+- **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|wave-xlean|dragon-xlean|lotus-xlean|off>`
 - **Update check + self-update** — daily background probe of the repo; renders an `update vX.Y.Z` segment when a new release lands. `kanagawa-statusline update` swaps in the latest version.
 
 ## Documentation

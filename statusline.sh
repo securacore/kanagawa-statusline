@@ -253,9 +253,12 @@ RESET="${ESC}[0m"
 #                                  → dragonOrange)
 #   lotus  — light theme          (lotusViolet → lotusBlue → lotusGray
 #                                  → lotusOrange)
-# Each base also has a `-lean` form (wave-lean / dragon-lean / lotus-lean):
-# muted monochromatic bgs (single-family ramp) + low-contrast accent fgs.
-# Powerline structure is identical across all variants.
+# Each base also has two reduced forms:
+#   `*-lean`   muted monochromatic bgs (single-family ramp), full powerline
+#   `*-xlean`  pure text + ` │ ` divider, no bg fills, no powerline arrows
+# (so wave-lean / dragon-lean / lotus-lean / wave-xlean / dragon-xlean /
+#  lotus-xlean.) The xlean palettes set fg accents only — bg values are
+# unused at render time because seg() emits foreground only.
 # Hex values mapped to nearest ANSI 256.
 
 # Variant resolution order:
@@ -274,6 +277,14 @@ KANAGAWA_VARIANT="${KANAGAWA_VARIANT:-wave}"
 if [ "$KANAGAWA_VARIANT" = "off" ]; then
   exit 0
 fi
+
+# Style derives from the variant suffix:
+#   *-xlean  → text mode (no bg fills, ` │ ` divider, no powerline arrows)
+#   else     → powerline mode (bg fills + arrow separators)
+KANAGAWA_STYLE=powerline
+case "$KANAGAWA_VARIANT" in
+  *-xlean) KANAGAWA_STYLE=text ;;
+esac
 
 apply_palette() {
   # Foreground tokens shared across variants (overridden per variant).
@@ -374,10 +385,57 @@ apply_palette() {
       X_BG=187;    X_FG=166             # lotusWhite + lotusOrange — caveman
       U_BG=186;    U_FG=124             # lotusWhite5 + lotusRed — update
       ;;
+    wave-xlean)
+      # Wave xLean — text mode. No bg fills; segments are colored fg
+      # text separated by ` │ `. Fg accents follow the wave palette.
+      FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
+      CTX_BG=0;    CTX_FG=110           # crystalBlue — context %
+      A_BG=0;      A_FG=$FUJI_WHITE     # fujiWhite — model
+      B_BG=0;      B_FG=107             # springGreen — branch
+      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — cwd
+      GRAD_MIN=144; GRAD_MAX=144        # uniform muted lang fg
+      Y_BG=0;      Y_FG=179             # boatYellow2 — style
+      Z_BG=0;      Z_FG=110             # crystalBlue — cli
+      X_BG=0;      X_FG=215             # surimiOrange — caveman
+      U_BG=0;      U_FG=167             # samuraiRed — update
+      DIV_FG=240                        # dark gray ` │ ` separator
+      ;;
+    dragon-xlean)
+      # Dragon xLean — text mode, dragon palette accents on terminal bg.
+      FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=234
+      CTX_BG=0;    CTX_FG=109           # dragonBlue2 — context %
+      A_BG=0;      A_FG=$FUJI_WHITE     # fujiWhite — model
+      B_BG=0;      B_FG=66              # dragonAqua-ish — branch
+      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — cwd
+      GRAD_MIN=144; GRAD_MAX=144        # uniform muted lang fg
+      Y_BG=0;      Y_FG=144             # dragonYellow — style
+      Z_BG=0;      Z_FG=109             # dragonBlue2 — cli
+      X_BG=0;      X_FG=180             # dragonOrange2 — caveman
+      U_BG=0;      U_FG=167             # dragonRed — update
+      DIV_FG=240                        # dark gray separator
+      ;;
+    lotus-xlean)
+      # Lotus xLean — text mode for light terminals. Dark/saturated
+      # accents (lotusViolet, lotusBlue4) on terminal default bg.
+      FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
+      CTX_BG=0;    CTX_FG=60            # lotusViolet4 — context %
+      A_BG=0;      A_FG=24              # lotusBlue4 — model
+      B_BG=0;      B_FG=22              # dark green — branch
+      C_BG=0;      C_FG=234             # dark sumi — cwd
+      GRAD_MIN=137; GRAD_MAX=137        # uniform dark-tan lang fg
+      Y_BG=0;      Y_FG=178             # lotusYellow3 — style
+      Z_BG=0;      Z_FG=24              # lotusBlue4 — cli
+      X_BG=0;      X_FG=166             # lotusOrange — caveman
+      U_BG=0;      U_FG=124             # lotusRed — update
+      DIV_FG=137                        # muted tan separator (visible on light bg)
+      ;;
     *)
       printf 'statusline: unknown KANAGAWA_VARIANT=%s\n' "$KANAGAWA_VARIANT" >&2
-      printf '  valid: wave | dragon | lotus | wave-lean | dragon-lean | lotus-lean | off\n' >&2
+      printf '  valid: wave | dragon | lotus\n' >&2
+      printf '       | wave-lean | dragon-lean | lotus-lean\n' >&2
+      printf '       | wave-xlean | dragon-xlean | lotus-xlean | off\n' >&2
       KANAGAWA_VARIANT=wave
+      KANAGAWA_STYLE=powerline
       apply_palette
       return
       ;;
@@ -388,12 +446,24 @@ apply_palette
 LSEP=$''   #
 RSEP=$''   #
 
-# seg <bg> <fg> <text>
-seg() { printf '%s[48;5;%sm%s[38;5;%sm%s %s' "$ESC" "$1" "$ESC" "$2" "$3" "$RESET"; }
-# left transition: prev_bg -> new_bg using LSEP
-ltrans() { printf '%s[48;5;%sm%s[38;5;%sm%s%s' "$ESC" "$2" "$ESC" "$1" "$LSEP" "$RESET"; }
-# right transition: new_bg shows RSEP whose fg is new_bg, bg is prev_bg
-rtrans() { printf '%s[48;5;%sm%s[38;5;%sm%s%s' "$ESC" "$1" "$ESC" "$2" "$RSEP" "$RESET"; }
+if [ "$KANAGAWA_STYLE" = "text" ]; then
+  # Text mode (xlean): foreground only, ` │ ` divider in DIV_FG. The bg
+  # arg to seg() and the prev/new_bg args to transitions are ignored.
+  # seg <bg-ignored> <fg> <text>
+  seg() { printf '%s[38;5;%sm%s%s' "$ESC" "$2" "$3" "$RESET"; }
+  # Both transitions render the same divider — no protrusion/arrow
+  # geometry exists in text mode.
+  ltrans() { printf '%s[38;5;%sm │%s' "$ESC" "$DIV_FG" "$RESET"; }
+  rtrans() { printf '%s[38;5;%sm │%s' "$ESC" "$DIV_FG" "$RESET"; }
+else
+  # Powerline mode: bg fills + arrow separators.
+  # seg <bg> <fg> <text>
+  seg() { printf '%s[48;5;%sm%s[38;5;%sm%s %s' "$ESC" "$1" "$ESC" "$2" "$3" "$RESET"; }
+  # left transition: prev_bg -> new_bg using LSEP
+  ltrans() { printf '%s[48;5;%sm%s[38;5;%sm%s%s' "$ESC" "$2" "$ESC" "$1" "$LSEP" "$RESET"; }
+  # right transition: new_bg shows RSEP whose fg is new_bg, bg is prev_bg
+  rtrans() { printf '%s[48;5;%sm%s[38;5;%sm%s%s' "$ESC" "$1" "$ESC" "$2" "$RSEP" "$RESET"; }
+fi
 
 # ── build LEFT ──────────────────────────────────────────────────────────
 left=""
@@ -420,7 +490,7 @@ first_bg=""
 [ -n "$branch" ]   && add_left "$B_BG" "$B_FG" "  $branch"
 [ -n "$basename" ] && add_left "$C_BG" "$C_FG" " $basename"
 # leading cap (left-pointing angle in first segment's bg on default bg) + trailing arrow off last segment
-if [ -n "$prev_bg" ]; then
+if [ -n "$prev_bg" ] && [ "$KANAGAWA_STYLE" != "text" ]; then
   left_cap=$(printf '%s[38;5;%sm%s%s' "$ESC" "$first_bg" "$RSEP" "$RESET")
   left="${left_cap}${left}"
   left+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$prev_bg" "$LSEP" "$RESET")
@@ -470,6 +540,8 @@ build_right_data() {
       bg=$(( GRAD_MIN + (GRAD_MAX - GRAD_MIN) * i / (n - 1) ))
     fi
     if (( bg < 244 )); then fg=$FUJI_WHITE; else fg=$SUMI_FG; fi
+    # Text mode: gradient value is the fg (no bg fill to contrast against).
+    [ "$KANAGAWA_STYLE" = "text" ] && fg=$bg
     text=$(lang_text "$key")
     seg_keys+=("$key")
     seg_data+=("$bg|$fg|$text")
@@ -489,7 +561,8 @@ build_right() {
   for i in "${!seg_keys[@]}"; do
     IFS='|' read -r bg fg txt <<< "${seg_data[$i]}"
     if [ -z "$last_bg" ]; then
-      right+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$bg" "$RSEP" "$RESET")
+      [ "$KANAGAWA_STYLE" != "text" ] \
+        && right+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$bg" "$RSEP" "$RESET")
     elif [ "$last_key" = "cli" ]; then
       # Protrusion: mirror the model→ctx leftward protrusion on the left
       # cluster — cli pushes rightward into the next segment.
@@ -501,7 +574,7 @@ build_right() {
     last_bg=$bg
     last_key="${seg_keys[$i]}"
   done
-  if [ -n "$last_bg" ]; then
+  if [ -n "$last_bg" ] && [ "$KANAGAWA_STYLE" != "text" ]; then
     right+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$last_bg" "$LSEP" "$RESET")
   fi
 }
