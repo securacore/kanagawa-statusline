@@ -6,7 +6,7 @@
 flowchart LR
   subgraph LEFT["LEFT — anchors"]
     direction LR
-    ctx["ctx %"] --> model["model (effort)"] --> branch[" branch"] --> cwd[" cwd basename"]
+    ctx["ctx %"] --> model["model (effort)"] --> branch[" branch"] --> cwd["cwd basename"]
   end
   subgraph RIGHT["RIGHT — gradient + warm exit"]
     direction LR

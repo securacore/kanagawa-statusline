@@ -6,7 +6,7 @@
 #  Powerline glyphs and a violet → blue → sumi-ink → orange palette.
 #
 #  LEFT CLUSTER  (priority anchors)
-#    [ ctx % ] → [ model (effort) ] → [  branch ] → [  cwd basename ]
+#    [ ctx % ] → [ model (effort) ] → [  branch ] → [ cwd basename ]
 #       violet         blue           dark-blue       sumi-ink5
 #
 #  RIGHT CLUSTER (lang gradient + warm exit)
@@ -71,7 +71,7 @@ input=$(cat)
 
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 effort=$(printf '%s' "$input" | jq -r '.effort.level // ""')
-[ -n "$effort" ] && model="$model ($effort)"
+[ -n "$effort" ] && model="$model 󰉁 $effort"
 # ── parse JSON from Claude Code (piped via stdin) ──────────────────────
 # Field schema: https://docs.claude.com/en/docs/claude-code/statusline
 proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
@@ -367,7 +367,7 @@ first_bg=""
 [ -n "$ctx_pct" ]  && { add_left "$CTX_BG" "$CTX_FG" " ${ctx_pct}%"; first_bg=$CTX_BG; }
 [ -n "$model" ]    && { add_left "$A_BG" "$A_FG" " $model"; [ -z "$first_bg" ] && first_bg=$A_BG; }
 [ -n "$branch" ]   && add_left "$B_BG" "$B_FG" "  $branch"
-[ -n "$basename" ] && add_left "$C_BG" "$C_FG" "  $basename"
+[ -n "$basename" ] && add_left "$C_BG" "$C_FG" " $basename"
 # leading cap (left-pointing angle in first segment's bg on default bg) + trailing arrow off last segment
 if [ -n "$prev_bg" ]; then
   left_cap=$(printf '%s[38;5;%sm%s%s' "$ESC" "$first_bg" "$RSEP" "$RESET")
@@ -426,7 +426,7 @@ build_right_data() {
   done
   [ -n "$style" ] && [ "$style" != "default" ] && {
     seg_keys+=(style); seg_data+=("$Y_BG|$Y_FG| $style"); }
-  [ -n "$ver" ]   && { seg_keys+=(cli);   seg_data+=("$Z_BG|$Z_FG| cli v$ver"); }
+  [ -n "$ver" ]   && { seg_keys+=(cli);   seg_data+=("$Z_BG|$Z_FG| 󰙴 cli v$ver"); }
   [ -n "$badge" ] && { seg_keys+=(badge); seg_data+=("$X_BG|$X_FG| $badge"); }
   [ -n "$update_available" ] && {
     seg_keys+=(update); seg_data+=("$U_BG|$U_FG|  v$update_available"); }
