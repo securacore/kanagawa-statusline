@@ -71,7 +71,7 @@ input=$(cat)
 
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 effort=$(printf '%s' "$input" | jq -r '.effort.level // ""')
-[ -n "$effort" ] && model="$model 󰉁 $effort"
+[ -n "$effort" ] && model="$model 󰓅 $effort"
 # ── parse JSON from Claude Code (piped via stdin) ──────────────────────
 # Field schema: https://docs.claude.com/en/docs/claude-code/statusline
 proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
