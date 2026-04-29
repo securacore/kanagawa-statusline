@@ -55,7 +55,7 @@ Key mechanics, all in `statusline.sh`:
 - **Dynamic gradient** — `build_right_data()` recomputes per-segment grays each render: N visible langs map to N evenly-spaced stops between `GRAD_MIN` and `GRAD_MAX`, so 2 langs span the full gradient like 7 would.
 - **Graceful degradation** — if right cluster overruns the line, lang segments are dropped one at a time per `drop_order=(odin zig rust go node bun py)` until content fits. CLI / caveman / style are never dropped.
 - **Right-edge alignment** — true terminal width via `stty size </dev/tty` (Claude Code's spawned subshell doesn't pass `$COLUMNS`); minus `KANAGAWA_CHROME` (default 4) for TUI margins. Visible width uses a Python helper that respects East Asian Width and maps Private Use Area glyphs (nerd-font icons) to `KANAGAWA_PUA_WIDTH` cells (default 1, suits Mono nerd-font variants).
-- **Variant resolution** — `KANAGAWA_VARIANT` env → `$XDG_CONFIG_HOME/kanagawa-statusline/config` (`VARIANT=`) → `wave` default.
+- **Variant resolution** — `KANAGAWA_VARIANT` env → `$XDG_CONFIG_HOME/kanagawa-statusline/config` (`VARIANT=`) → `wave-xlean` default.
 
 ### Caches
 
@@ -64,7 +64,7 @@ Key mechanics, all in `statusline.sh`:
 
 ### JSON fields consumed from stdin
 
-`model.display_name`, `effort.level`, `workspace.project_dir`, `workspace.current_dir`, `cwd`, `version`, `output_style.name`, `context_window.used_percentage`. Schema: https://docs.claude.com/en/docs/claude-code/statusline.
+`model.display_name`, `effort.level`, `workspace.project_dir`, `workspace.current_dir`, `cwd`, `version`, `output_style.name`, `context_window.used_percentage`, `context_window.context_window_size`. Schema: https://docs.claude.com/en/docs/claude-code/statusline.
 
 ### Security guards (don't regress these)
 

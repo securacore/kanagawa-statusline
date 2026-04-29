@@ -21,13 +21,13 @@ curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main
 ## Basic Usage
 
 ```bash
-kanagawa-statusline wave         # cool night (default)
+kanagawa-statusline wave         # cool night
 kanagawa-statusline dragon       # warm earthy night
 kanagawa-statusline lotus        # light theme
 kanagawa-statusline wave-lean    # muted dark mono (wave family)
 kanagawa-statusline dragon-lean  # muted dark mono (dragon family)
 kanagawa-statusline lotus-lean   # muted light mono (lotus family)
-kanagawa-statusline wave-xlean   # text-only with ` │ ` divider (wave fgs)
+kanagawa-statusline wave-xlean   # text-only with ` │ ` divider (wave fgs, default)
 kanagawa-statusline dragon-xlean # text-only with ` │ ` divider (dragon fgs)
 kanagawa-statusline lotus-xlean  # text-only with ` │ ` divider (lotus fgs)
 kanagawa-statusline off          # disable styling

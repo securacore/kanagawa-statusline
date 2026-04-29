@@ -6,7 +6,7 @@
 flowchart LR
   subgraph LEFT["LEFT — anchors"]
     direction LR
-    ctx["ctx %"] --> model["model (effort)"] --> branch[" branch"] --> cwd["cwd basename"]
+    ctx["ctx % 󰍛 size"] --> model["model (effort)"] --> branch[" branch ↑N ↓N"] --> cwd["cwd +N !N ?N"]
   end
   subgraph RIGHT["RIGHT — gradient + warm exit"]
     direction LR
@@ -17,6 +17,8 @@ flowchart LR
 
 - **Protrude transition** — the boundary between ctx % and model uses a left-pointing Powerline arrow (instead of the standard right-pointing one), making the model bg appear to push leftward into ctx. Visually anchors the left edge.
 - **Cap glyphs** — leading left cap on the ctx anchor, trailing right cap after caveman. Both colored to match the adjacent segment.
+- **Git change breakdown** — when the project is a git repo with dirty state, the cwd segment appends p10k-style counts: `+N` staged (index), `!N` modified (worktree), `?N` untracked. Each token rendered only when nonzero. Single `git status --porcelain` pass parses XY columns. Omitted on clean repos and non-git paths.
+- **Upstream divergence** — when the branch has an upstream, the branch segment appends `↑N` (ahead) and/or `↓N` (behind), via `git rev-list --left-right --count @{upstream}...HEAD`. Reflects state of the last `git fetch` only — remote commits pushed since then will not show as "behind" until the user fetches. Render hooks deliberately do not auto-fetch.
 
 ## Dynamic gradient
 
@@ -102,6 +104,7 @@ The script reads these fields from the JSON Claude Code pipes via stdin:
 - `version` — cli version segment
 - `output_style.name` — style segment (rendered when not `default`)
 - `context_window.used_percentage` — ctx anchor
+- `context_window.context_window_size` — total window size, formatted as `1M`/`200K` next to the pct
 
 Schema reference: [Claude Code statusline docs](https://docs.claude.com/en/docs/claude-code/statusline).
 

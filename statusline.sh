@@ -80,14 +80,61 @@ proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
 ver=$(printf '%s'  "$input" | jq -r '.version // ""')
 style=$(printf '%s' "$input" | jq -r '(.output_style.name // .output_style // "") | if type=="string" then . else "" end' | tr -d '\n\r')
 ctx_pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
+ctx_size_raw=$(printf '%s' "$input" | jq -r '.context_window.context_window_size // 0')
+
+# Render token count compactly: 1000000→1M, 1500000→1.5M, 200000→200K.
+# Integer math only — bash has no floats; we slice off the residue manually.
+fmt_ctx_size() {
+  local n=$1
+  (( n <= 0 )) && return
+  if (( n >= 1000000 )); then
+    if (( n % 1000000 == 0 )); then
+      printf '%dM' $(( n / 1000000 ))
+    else
+      printf '%d.%dM' $(( n / 1000000 )) $(( (n % 1000000) / 100000 ))
+    fi
+  elif (( n >= 1000 )); then
+    if (( n % 1000 == 0 )); then
+      printf '%dK' $(( n / 1000 ))
+    else
+      printf '%d.%dK' $(( n / 1000 )) $(( (n % 1000) / 100 ))
+    fi
+  else
+    printf '%d' "$n"
+  fi
+}
+ctx_size=$(fmt_ctx_size "$ctx_size_raw")
 
 basename=""
 [ -n "$proj" ] && basename=$(basename "$proj")
 
 branch=""
+git_staged=0 git_modified=0 git_untracked=0
+git_ahead=0 git_behind=0
 if [ -n "$proj" ] && git -C "$proj" rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git -C "$proj" symbolic-ref --short HEAD 2>/dev/null \
         || git -C "$proj" rev-parse --short HEAD 2>/dev/null)
+  # Parse porcelain v1 XY columns:
+  #   X = index (staged), Y = worktree (unstaged), "??" = untracked.
+  # Single git call; counts files, not hunks.
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    if [ "${line:0:2}" = "??" ]; then
+      (( git_untracked++ ))
+    else
+      [ "${line:0:1}" != " " ] && (( git_staged++ ))
+      [ "${line:1:1}" != " " ] && (( git_modified++ ))
+    fi
+  done < <(git -C "$proj" status --porcelain 2>/dev/null)
+  # Ahead/behind vs upstream. NOTE: reflects state of last `git fetch` —
+  # remote commits pushed since then will not show as "behind" until the
+  # user fetches. Auto-fetching from a render hook would be invasive, so
+  # we surface only what's already in local refs.
+  ab=$(git -C "$proj" rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null)
+  if [[ "$ab" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+    git_behind=${BASH_REMATCH[1]}
+    git_ahead=${BASH_REMATCH[2]}
+  fi
 fi
 
 # ── project runtime detection ──────────────────────────────────────────
@@ -264,14 +311,14 @@ RESET="${ESC}[0m"
 # Variant resolution order:
 #   1. KANAGAWA_VARIANT env var
 #   2. VARIANT key in $XDG_CONFIG_HOME/kanagawa-statusline/config
-#   3. "wave" (default)
+#   3. "wave-xlean" (default)
 KANAGAWA_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/kanagawa-statusline/config"
 if [ -z "${KANAGAWA_VARIANT:-}" ] && [ -f "$KANAGAWA_CONFIG" ]; then
   # shellcheck disable=SC1090
   . "$KANAGAWA_CONFIG"
   KANAGAWA_VARIANT="${VARIANT:-}"
 fi
-KANAGAWA_VARIANT="${KANAGAWA_VARIANT:-wave}"
+KANAGAWA_VARIANT="${KANAGAWA_VARIANT:-wave-xlean}"
 
 # "off" — print nothing and exit. Disables theming entirely.
 if [ "$KANAGAWA_VARIANT" = "off" ]; then
@@ -434,8 +481,8 @@ apply_palette() {
       printf '  valid: wave | dragon | lotus\n' >&2
       printf '       | wave-lean | dragon-lean | lotus-lean\n' >&2
       printf '       | wave-xlean | dragon-xlean | lotus-xlean | off\n' >&2
-      KANAGAWA_VARIANT=wave
-      KANAGAWA_STYLE=powerline
+      KANAGAWA_VARIANT=wave-xlean
+      KANAGAWA_STYLE=text
       apply_palette
       return
       ;;
@@ -489,10 +536,28 @@ add_left() { # <bg> <fg> <text>
 }
 
 first_bg=""
-[ -n "$ctx_pct" ]  && { add_left "$CTX_BG" "$CTX_FG" " ${ctx_pct}%"; first_bg=$CTX_BG; }
+if [ -n "$ctx_pct" ]; then
+  ctx_text=" ${ctx_pct}%"
+  [ -n "$ctx_size" ] && ctx_text+=" 󰍛 $ctx_size"
+  add_left "$CTX_BG" "$CTX_FG" "$ctx_text"
+  first_bg=$CTX_BG
+fi
 [ -n "$model" ]    && { add_left "$A_BG" "$A_FG" " $model"; [ -z "$first_bg" ] && first_bg=$A_BG; }
-[ -n "$branch" ]   && add_left "$B_BG" "$B_FG" "  $branch"
-[ -n "$basename" ] && add_left "$C_BG" "$C_FG" " $basename"
+if [ -n "$branch" ]; then
+  branch_text="  $branch"
+  (( git_ahead  > 0 )) && branch_text+=" ↑$git_ahead"
+  (( git_behind > 0 )) && branch_text+=" ↓$git_behind"
+  add_left "$B_BG" "$B_FG" "$branch_text"
+fi
+if [ -n "$basename" ]; then
+  cwd_text=" $basename"
+  git_parts=()
+  (( git_staged    > 0 )) && git_parts+=("+$git_staged")
+  (( git_modified  > 0 )) && git_parts+=("!$git_modified")
+  (( git_untracked > 0 )) && git_parts+=("?$git_untracked")
+  (( ${#git_parts[@]} > 0 )) && cwd_text+=" ${git_parts[*]}"
+  add_left "$C_BG" "$C_FG" "$cwd_text"
+fi
 # leading cap (left-pointing angle in first segment's bg on default bg) + trailing arrow off last segment
 if [ -n "$prev_bg" ] && [ "$KANAGAWA_STYLE" != "text" ]; then
   left_cap=$(printf '%s[38;5;%sm%s%s' "$ESC" "$first_bg" "$RSEP" "$RESET")

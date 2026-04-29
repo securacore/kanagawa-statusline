@@ -5,13 +5,13 @@
 # up on the next redraw (no explicit reload needed).
 #
 # usage:
-#   kanagawa-statusline wave          # cool night (default)
+#   kanagawa-statusline wave          # cool night
 #   kanagawa-statusline dragon        # warm earthy night
 #   kanagawa-statusline lotus         # light theme
 #   kanagawa-statusline wave-lean     # wave, muted dark monochromatic
 #   kanagawa-statusline dragon-lean   # dragon, muted dark monochromatic
 #   kanagawa-statusline lotus-lean    # lotus, muted light monochromatic
-#   kanagawa-statusline wave-xlean    # wave, text-only with ` │ ` divider
+#   kanagawa-statusline wave-xlean    # wave, text-only with ` │ ` divider (default)
 #   kanagawa-statusline dragon-xlean  # dragon, text-only with ` │ ` divider
 #   kanagawa-statusline lotus-xlean   # lotus, text-only with ` │ ` divider
 #   kanagawa-statusline off           # disable styling (empty output)
@@ -143,7 +143,7 @@ EOF
     if [ -n "$cur" ]; then
       printf 'kanagawa-statusline: current variant = %s\n' "$cur"
     else
-      printf 'kanagawa-statusline: no config set (defaulting to wave)\n'
+      printf 'kanagawa-statusline: no config set (defaulting to wave-xlean)\n'
     fi
     [ -n "$iv" ] && printf '  installed version: %s\n' "$iv"
     printf '  config file: %s\n' "$CONFIG_FILE"
@@ -224,13 +224,13 @@ EOF
 kanagawa-statusline — switch Kanagawa variant for the Claude Code statusline.
 
 usage:
-  kanagawa-statusline wave              cool night (default)
+  kanagawa-statusline wave              cool night
   kanagawa-statusline dragon            warm earthy night
   kanagawa-statusline lotus             light theme
   kanagawa-statusline wave-lean         wave, muted dark monochromatic
   kanagawa-statusline dragon-lean       dragon, muted dark monochromatic
   kanagawa-statusline lotus-lean        lotus, muted light monochromatic
-  kanagawa-statusline wave-xlean        wave, text-only with ` │ ` divider
+  kanagawa-statusline wave-xlean        wave, text-only with ` │ ` divider (default)
   kanagawa-statusline dragon-xlean      dragon, text-only with ` │ ` divider
   kanagawa-statusline lotus-xlean       lotus, text-only with ` │ ` divider
   kanagawa-statusline off               disable styling

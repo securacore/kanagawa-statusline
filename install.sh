@@ -91,9 +91,10 @@ fi
 
 # ── variant prompt ──────────────────────────────────────────────────────
 bold "Choose a Kanagawa variant"
-echo "  1) wave   (default — cool night)"
-echo "  2) dragon (warm earthy night)"
-echo "  3) lotus  (light theme)"
-echo "  Set KANAGAWA_VARIANT=<wave|dragon|lotus> in your shell rc."
+echo "  1) wave-xlean (default — text-only, cool fg accents)"
+echo "  2) wave   (cool night, full powerline)"
+echo "  3) dragon (warm earthy night)"
+echo "  4) lotus  (light theme)"
+echo "  Set KANAGAWA_VARIANT=<variant> in your shell rc; see \`kanagawa-statusline --help\` for full list."
 
 bold "Done. Reload Claude Code (or press Enter at the prompt)."
