@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# kanagawa-statusline — switch the active Kanagawa variant for the
+# Claude Code statusline. Writes ~/.config/kanagawa-statusline/config.
+# The statusline script reads this on every render, so the change picks
+# up on the next redraw (no explicit reload needed).
+#
+# usage:
+#   kanagawa-statusline wave       # cool night (default)
+#   kanagawa-statusline dragon     # warm earthy night
+#   kanagawa-statusline lotus      # light theme
+#   kanagawa-statusline off        # disable styling (empty output)
+#   kanagawa-statusline            # show current setting
+
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kanagawa-statusline"
+CONFIG_FILE="$CONFIG_DIR/config"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kanagawa-statusline"
+STATUSLINE_FILE="$HOME/.claude/statusline-command.sh"
+REPO_RAW="${KANAGAWA_STATUSLINE_REPO_RAW:-https://raw.githubusercontent.com/securacore/kanagawa-statusline/main}"
+
+info() { printf '  • %s\n' "$*"; }
+warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
+fail() { printf '\033[31m  ✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# Read embedded version constant from the installed statusline.sh.
+# Tolerates missing file / no-match grep without tripping `set -o pipefail`.
+installed_version() {
+  [ -f "$STATUSLINE_FILE" ] || { echo ""; return; }
+  local line
+  line=$(grep -E '^KANAGAWA_STATUSLINE_VERSION=' "$STATUSLINE_FILE" 2>/dev/null | head -1) || true
+  [ -z "$line" ] && { echo ""; return; }
+  printf '%s' "$line" \
+    | sed -E 's/^[^=]+="?([^"]*)"?[[:space:]]*$/\1/' \
+    | tr -cd '0-9.'
+}
+
+# Fetch /VERSION from the repo. Returns clean semver or empty on failure.
+fetch_remote_version() {
+  command -v curl >/dev/null 2>&1 || return 1
+  local body
+  body=$(curl -fsSL --max-time 10 "$REPO_RAW/VERSION" 2>/dev/null) || return 1
+  printf '%s' "$body" | head -c 32 | tr -cd '0-9.'
+}
+
+# Strict semver compare. Echoes "newer", "older", or "same".
+semver_cmp() { # <a> <b>
+  [ "$1" = "$2" ] && { echo same; return; }
+  local newest
+  newest=$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)
+  if [ "$newest" = "$1" ]; then echo newer; else echo older; fi
+}
+
+mkdir -p "$CONFIG_DIR"
+
+current() {
+  if [ -f "$CONFIG_FILE" ]; then
+    grep -E '^VARIANT=' "$CONFIG_FILE" 2>/dev/null \
+      | tail -1 | cut -d= -f2-
+  fi
+}
+
+set_variant() {
+  printf 'VARIANT=%s\n' "$1" > "$CONFIG_FILE"
+  printf 'kanagawa-statusline: variant set to %s\n' "$1"
+  printf '  config: %s\n' "$CONFIG_FILE"
+  printf '  applies on next statusline render (press Enter at the prompt)\n'
+}
+
+case "${1:-}" in
+  wave|dragon|lotus|off)
+    set_variant "$1"
+    ;;
+  uninstall|remove)
+    STATUSLINE_FILE="$HOME/.claude/statusline-command.sh"
+    SETTINGS="$HOME/.claude/settings.json"
+    TMP_CACHE_GLOB="${TMPDIR:-/tmp}/cc-statusline-rt-*"
+
+    cat <<EOF
+kanagawa-statusline uninstall — this will remove:
+  - $STATUSLINE_FILE
+  - $0 (this CLI)
+  - $CONFIG_DIR/
+  - $CACHE_DIR/ (update-check cache)
+  - statusline runtime caches: $TMP_CACHE_GLOB
+  - .statusLine block in $SETTINGS (only if it references this script;
+    other statusLine commands are left alone)
+EOF
+
+    if [ "${2:-}" != "--yes" ] && [ "${2:-}" != "-y" ]; then
+      printf '\nProceed? [y/N] '
+      read -r ans
+      case "$ans" in
+        [Yy]*) ;;
+        *) echo "aborted"; exit 0 ;;
+      esac
+    fi
+
+    rm -f "$STATUSLINE_FILE"   && info "removed $STATUSLINE_FILE"
+    rm -rf "$CONFIG_DIR"       && info "removed $CONFIG_DIR/"
+    rm -rf "$CACHE_DIR"        && info "removed $CACHE_DIR/"
+    # shellcheck disable=SC2086
+    rm -f $TMP_CACHE_GLOB 2>/dev/null && info "removed cache files"
+
+    # Strip our .statusLine block from settings.json — but only if it
+    # actually references this script. Touching a third-party statusLine
+    # someone wired up themselves would be hostile, so we leave anything
+    # that doesn't mention statusline-command.sh alone.
+    if [ -f "$SETTINGS" ]; then
+      if command -v jq >/dev/null 2>&1; then
+        if jq -e '(.statusLine.command // "") | tostring | test("statusline-command\\.sh")' "$SETTINGS" >/dev/null 2>&1; then
+          tmp=$(mktemp "${TMPDIR:-/tmp}/kanagawa-settings.XXXXXX")
+          if jq 'del(.statusLine)' "$SETTINGS" > "$tmp" && [ -s "$tmp" ]; then
+            mv "$tmp" "$SETTINGS"
+            info "removed .statusLine block from $SETTINGS"
+          else
+            rm -f "$tmp"
+            warn "could not rewrite $SETTINGS — remove the .statusLine block manually"
+          fi
+        else
+          info "$SETTINGS .statusLine does not reference this script — left untouched"
+        fi
+      else
+        warn "jq not installed — leaving $SETTINGS untouched (remove .statusLine manually)"
+      fi
+    fi
+
+    self_path="$0"
+    rm -f "$self_path"         && info "removed $self_path"
+    echo
+    echo "Done."
+    exit 0
+    ;;
+  ""|status)
+    cur=$(current)
+    iv=$(installed_version)
+    if [ -n "$cur" ]; then
+      printf 'kanagawa-statusline: current variant = %s\n' "$cur"
+    else
+      printf 'kanagawa-statusline: no config set (defaulting to wave)\n'
+    fi
+    [ -n "$iv" ] && printf '  installed version: %s\n' "$iv"
+    printf '  config file: %s\n' "$CONFIG_FILE"
+    ;;
+  version|--version|-V)
+    iv=$(installed_version)
+    printf '%s\n' "${iv:-unknown}"
+    ;;
+  check)
+    # Force a synchronous check, ignoring TTL. Updates the render cache so
+    # the next statusline render reflects today's result without waiting
+    # for the background probe.
+    iv=$(installed_version)
+    rv=$(fetch_remote_version) || rv=""
+    printf 'installed: %s\n' "${iv:-unknown}"
+    printf 'latest:    %s\n' "${rv:-unknown (fetch failed)}"
+    if [ -n "$rv" ]; then
+      mkdir -p "$CACHE_DIR"
+      printf '%s' "$rv" > "$CACHE_DIR/latest-version"
+    fi
+    if [ -n "$iv" ] && [ -n "$rv" ]; then
+      case $(semver_cmp "$rv" "$iv") in
+        newer) printf '\nupdate available — run: kanagawa-statusline update\n' ;;
+        same)  printf '\nup to date\n' ;;
+        older) printf '\ninstalled version is ahead of remote (dev build?)\n' ;;
+      esac
+    fi
+    ;;
+  update|upgrade)
+    force=0
+    [ "${2:-}" = "--force" ] || [ "${2:-}" = "-f" ] && force=1
+    command -v curl >/dev/null 2>&1 || fail "curl required for self-update"
+    [ -f "$STATUSLINE_FILE" ] || fail "statusline not installed at $STATUSLINE_FILE — run install.sh first"
+    [ -w "$STATUSLINE_FILE" ] || fail "$STATUSLINE_FILE is not writable"
+    [ -w "$0" ] || fail "$0 (this CLI) is not writable"
+
+    iv=$(installed_version)
+    rv=$(fetch_remote_version) || fail "could not fetch remote VERSION"
+    [ -n "$rv" ] || fail "remote VERSION was empty"
+
+    info "installed: ${iv:-unknown}"
+    info "latest:    $rv"
+
+    if [ "$iv" = "$rv" ] && [ "$force" -ne 1 ]; then
+      info "already up to date (use --force to reinstall)"
+      mkdir -p "$CACHE_DIR" && printf '%s' "$rv" > "$CACHE_DIR/latest-version"
+      exit 0
+    fi
+
+    # Stage downloads to a temp dir so a partial fetch can't corrupt the
+    # installed copy. Atomic rename only after every file lands.
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/kanagawa-update.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT
+
+    info "fetching statusline.sh..."
+    curl -fsSL --max-time 30 "$REPO_RAW/statusline.sh" -o "$tmp/statusline.sh" \
+      || fail "fetch statusline.sh failed"
+    info "fetching CLI..."
+    curl -fsSL --max-time 30 "$REPO_RAW/bin/kanagawa-statusline" -o "$tmp/kanagawa-statusline" \
+      || fail "fetch CLI failed"
+
+    # Sanity-check the downloads — bash syntax + version constant present.
+    bash -n "$tmp/statusline.sh"      || fail "downloaded statusline.sh failed syntax check"
+    bash -n "$tmp/kanagawa-statusline" || fail "downloaded CLI failed syntax check"
+    grep -qE '^KANAGAWA_STATUSLINE_VERSION=' "$tmp/statusline.sh" \
+      || fail "downloaded statusline.sh missing version constant"
+
+    chmod 0755 "$tmp/statusline.sh" "$tmp/kanagawa-statusline"
+    mv "$tmp/statusline.sh"      "$STATUSLINE_FILE"
+    mv "$tmp/kanagawa-statusline" "$0"
+    info "updated: ${iv:-unknown} → $rv"
+
+    # Refresh the cache so the indicator clears on the next render.
+    mkdir -p "$CACHE_DIR" && printf '%s' "$rv" > "$CACHE_DIR/latest-version"
+    ;;
+  -h|--help|help)
+    cat <<EOF
+kanagawa-statusline — switch Kanagawa variant for the Claude Code statusline.
+
+usage:
+  kanagawa-statusline wave              cool night (default)
+  kanagawa-statusline dragon            warm earthy night
+  kanagawa-statusline lotus             light theme
+  kanagawa-statusline off               disable styling
+  kanagawa-statusline status            show current setting + version
+  kanagawa-statusline version           print installed version
+  kanagawa-statusline check             check for a new release (synchronous)
+  kanagawa-statusline update [-f]       self-update statusline + this CLI
+  kanagawa-statusline uninstall [-y]    remove all installed files
+  kanagawa-statusline -h                this help
+
+config file:
+  \$XDG_CONFIG_HOME/kanagawa-statusline/config
+  (defaults to ~/.config/kanagawa-statusline/config)
+
+env overrides:
+  KANAGAWA_VARIANT=<variant>          override config file
+  KANAGAWA_NO_UPDATE_CHECK=1          disable background update probe in statusline
+  KANAGAWA_UPDATE_TTL=<seconds>       cadence of background probe (default 86400)
+  KANAGAWA_STATUSLINE_REPO_RAW=<url>  override raw-content base URL
+EOF
+    ;;
+  *)
+    printf 'kanagawa-statusline: unknown variant: %s\n' "$1" >&2
+    printf '  valid: wave | dragon | lotus | off\n' >&2
+    exit 1
+    ;;
+esac
