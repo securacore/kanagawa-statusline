@@ -51,7 +51,7 @@ link:
     info() { printf '  • %s\n' "$*"; }
     warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
 
-    mkdir -p "$state_dir" "$HOME/.claude" "$HOME/.local/bin"
+    mkdir -p "$HOME/.claude" "$HOME/.local/bin"
 
     was_installed=0
     link_one() { # <dst> <src>
@@ -105,6 +105,7 @@ link:
     fi
 
     if [ "$was_installed" = "1" ]; then
+      mkdir -p "$state_dir"
       printf 'restore-on-unlink\n' > "$state_file"
       info "saved restore flag at $state_file"
     fi
@@ -149,6 +150,7 @@ unlink:
       if command -v curl >/dev/null 2>&1; then
         if curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/install.sh | bash; then
           rm -f "$state_file"
+          rmdir "$state_dir" 2>/dev/null || true
           echo
           warn "install.sh fetched whatever is on main right now, which may"
           warn "differ from what you had installed before linking. Run:"
@@ -174,6 +176,11 @@ unlink:
         fi
       fi
     fi
+
+    # Tidy up — drop the state dir if it ended up empty (covers both
+    # branches: flag-restore success above, and no-flag with a stale
+    # empty dir left over from earlier versions of this recipe).
+    rmdir "$state_dir" 2>/dev/null || true
 
 # Show what `just release <level>` would change, without touching anything.
 release-dry LEVEL="patch":
