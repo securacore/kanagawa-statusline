@@ -83,9 +83,8 @@ kanagawa-statusline uninstall — this will remove:
   - $CONFIG_DIR/
   - $CACHE_DIR/ (update-check cache)
   - statusline runtime caches: $TMP_CACHE_GLOB
-
-settings.json (\$SETTINGS) will NOT be auto-edited. If your statusLine block
-references statusline-command.sh, remove it manually after this completes.
+  - .statusLine block in $SETTINGS (only if it references this script;
+    other statusLine commands are left alone)
 EOF
 
     if [ "${2:-}" != "--yes" ] && [ "${2:-}" != "-y" ]; then
@@ -102,9 +101,34 @@ EOF
     rm -rf "$CACHE_DIR"        && info "removed $CACHE_DIR/"
     # shellcheck disable=SC2086
     rm -f $TMP_CACHE_GLOB 2>/dev/null && info "removed cache files"
+
+    # Strip our .statusLine block from settings.json — but only if it
+    # actually references this script. Touching a third-party statusLine
+    # someone wired up themselves would be hostile, so we leave anything
+    # that doesn't mention statusline-command.sh alone.
+    if [ -f "$SETTINGS" ]; then
+      if command -v jq >/dev/null 2>&1; then
+        if jq -e '(.statusLine.command // "") | tostring | test("statusline-command\\.sh")' "$SETTINGS" >/dev/null 2>&1; then
+          tmp=$(mktemp "${TMPDIR:-/tmp}/kanagawa-settings.XXXXXX")
+          if jq 'del(.statusLine)' "$SETTINGS" > "$tmp" && [ -s "$tmp" ]; then
+            mv "$tmp" "$SETTINGS"
+            info "removed .statusLine block from $SETTINGS"
+          else
+            rm -f "$tmp"
+            warn "could not rewrite $SETTINGS — remove the .statusLine block manually"
+          fi
+        else
+          info "$SETTINGS .statusLine does not reference this script — left untouched"
+        fi
+      else
+        warn "jq not installed — leaving $SETTINGS untouched (remove .statusLine manually)"
+      fi
+    fi
+
     self_path="$0"
     rm -f "$self_path"         && info "removed $self_path"
-    printf '\nDone. Edit %s to drop the statusLine block if needed.\n' "$SETTINGS"
+    echo
+    echo "Done."
     exit 0
     ;;
   ""|status)
