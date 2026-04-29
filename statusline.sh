@@ -34,6 +34,8 @@
 #    drop_order                      lang priority for graceful degradation
 #    cols=$(( cols - N ))            chrome buffer (right-edge alignment)
 #    STATUSLINE_DEMO=1               env flag — preview all 7 langs
+#    KANAGAWA_VARIANT=lean           muted dark monochromatic palette,
+#                                    full powerline structure preserved
 #
 #  FEATURES
 #    • Per-project runtime version detection (node/bun/py/go/rust/zig/odin),
@@ -245,12 +247,14 @@ fi
 ESC=$'\e'
 RESET="${ESC}[0m"
 # ── Kanagawa palette (rebelot/kanagawa) ──────────────────────────────────
-# Three variants supported via KANAGAWA_VARIANT env var:
+# Four variants supported via KANAGAWA_VARIANT env var:
 #   wave   — default night/cool   (violet → crystal blue → sumi-ink → orange)
 #   dragon — warm earthy night    (dragonViolet → dragonBlue2 → dragonBlack
 #                                  → dragonOrange)
 #   lotus  — light theme          (lotusViolet → lotusBlue → lotusGray
 #                                  → lotusOrange)
+#   lean   — muted dark mono       (sumiInk ramp bgs + subtle Kanagawa
+#                                  accent fgs; full powerline structure)
 # Hex values mapped to nearest ANSI 256.
 
 # Variant resolution order:
@@ -323,8 +327,25 @@ apply_palette() {
       X_BG=166;    X_FG=255             # lotusOrange (#CC6D00) — caveman
       U_BG=124;    U_FG=255             # lotusRed (#C84053) — update available
       ;;
+    lean)
+      # Lean — dark monochromatic palette, full powerline structure preserved.
+      # All segments sit on the sumiInk ramp (#16161D..#363646) so adjacent
+      # bgs differ enough for powerline arrows to read clearly, while overall
+      # appearance stays muted/stealth. Foregrounds use Kanagawa accents
+      # (crystalBlue, springGreen, fujiWhite) at low contrast.
+      FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
+      CTX_BG=238;  CTX_FG=110           # sumiInk6 + crystalBlue — context %
+      A_BG=236;    A_FG=$FUJI_WHITE     # sumiInk4 + fujiWhite — model
+      B_BG=234;    B_FG=107             # sumiInk2 + springGreen — branch
+      C_BG=232;    C_FG=$OLD_WHITE      # sumiInk0 + oldWhite — cwd
+      GRAD_MIN=234; GRAD_MAX=240        # narrow dark-gray band — muted langs
+      Y_BG=236;    Y_FG=179             # sumiInk4 + boatYellow2 — style
+      Z_BG=233;    Z_FG=110             # darker + crystalBlue — cli
+      X_BG=237;    X_FG=215             # sumiInk5 + surimiOrange — caveman
+      U_BG=234;    U_FG=167             # sumiInk2 + samuraiRed — update available
+      ;;
     *)
-      printf 'statusline: unknown KANAGAWA_VARIANT=%s (use: wave|dragon|lotus)\n' \
+      printf 'statusline: unknown KANAGAWA_VARIANT=%s (use: wave|dragon|lotus|lean)\n' \
         "$KANAGAWA_VARIANT" >&2
       KANAGAWA_VARIANT=wave
       apply_palette

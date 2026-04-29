@@ -8,6 +8,7 @@
 #   kanagawa-statusline wave       # cool night (default)
 #   kanagawa-statusline dragon     # warm earthy night
 #   kanagawa-statusline lotus      # light theme
+#   kanagawa-statusline lean       # flat p10k-style — accent fg, no arrows
 #   kanagawa-statusline off        # disable styling (empty output)
 #   kanagawa-statusline            # show current setting
 
@@ -68,7 +69,7 @@ set_variant() {
 }
 
 case "${1:-}" in
-  wave|dragon|lotus|off)
+  wave|dragon|lotus|lean|off)
     set_variant "$1"
     ;;
   uninstall|remove)
@@ -221,6 +222,7 @@ usage:
   kanagawa-statusline wave              cool night (default)
   kanagawa-statusline dragon            warm earthy night
   kanagawa-statusline lotus             light theme
+  kanagawa-statusline lean              flat p10k-style — accent fg, no arrows
   kanagawa-statusline off               disable styling
   kanagawa-statusline status            show current setting + version
   kanagawa-statusline version           print installed version
@@ -242,7 +244,7 @@ EOF
     ;;
   *)
     printf 'kanagawa-statusline: unknown variant: %s\n' "$1" >&2
-    printf '  valid: wave | dragon | lotus | off\n' >&2
+    printf '  valid: wave | dragon | lotus | lean | off\n' >&2
     exit 1
     ;;
 esac

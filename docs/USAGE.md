@@ -7,6 +7,7 @@
 | `wave`   | night, cool, violet+blue   | dark terminals (most users — default)            |
 | `dragon` | night, warm, earthy        | dark terminals, warmer/desaturated tones         |
 | `lotus`  | day, light                 | light terminal backgrounds                       |
+| `lean`   | muted dark monochromatic   | dark terminals, low-saturation/stealth aesthetic |
 | `off`    | disabled                   | hide the statusline entirely (empty output)      |
 
 ## CLI
@@ -15,6 +16,7 @@
 kanagawa-statusline wave            # set variant (cool night, default)
 kanagawa-statusline dragon          # set variant (warm earthy night)
 kanagawa-statusline lotus           # set variant (light theme)
+kanagawa-statusline lean            # set variant (muted dark monochromatic)
 kanagawa-statusline off             # disable styling
 kanagawa-statusline status          # show current setting + installed version
 kanagawa-statusline version         # print installed version
@@ -82,7 +84,7 @@ The statusline runs a non-blocking, daily-cached probe of `/VERSION` on the repo
 ## Preview all variants
 
 ```bash
-for v in wave dragon lotus; do
+for v in wave dragon lotus lean; do
   printf '\n--- %s ---\n' "$v"
   printf '{"model":{"display_name":"Opus 4.7"},"workspace":{"project_dir":"."},"effort":{"level":"xhigh"},"version":"2.1.121","context_window":{"used_percentage":42}}' \
     | KANAGAWA_VARIANT=$v STATUSLINE_DEMO=1 bash ~/.claude/statusline-command.sh
