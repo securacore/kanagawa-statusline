@@ -434,16 +434,21 @@ build_right_data() {
 
 build_right() {
   right=""
-  local last_bg="" i bg fg txt
+  local last_bg="" last_key="" i bg fg txt
   for i in "${!seg_keys[@]}"; do
     IFS='|' read -r bg fg txt <<< "${seg_data[$i]}"
     if [ -z "$last_bg" ]; then
       right+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$bg" "$RSEP" "$RESET")
+    elif [ "$last_key" = "cli" ]; then
+      # Protrusion: mirror the model→ctx leftward protrusion on the left
+      # cluster — cli pushes rightward into the next segment.
+      right+=$(ltrans "$last_bg" "$bg")
     else
       right+=$(rtrans "$last_bg" "$bg")
     fi
     right+=$(seg "$bg" "$fg" "$txt")
     last_bg=$bg
+    last_key="${seg_keys[$i]}"
   done
   if [ -n "$last_bg" ]; then
     right+=$(printf '%s[38;5;%sm%s%s' "$ESC" "$last_bg" "$LSEP" "$RESET")
