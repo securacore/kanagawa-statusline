@@ -6,6 +6,8 @@
 #   just                  # list recipes
 #   just version          # show currently-checked-in version
 #   just lint             # shellcheck + bash -n
+#   just link             # symlink installed paths at this repo (live edits)
+#   just unlink           # reverse `just link`, restore prior install
 #   just release          # +1 patch (default)
 #   just release patch    # +1 patch
 #   just release minor    # +1 minor, reset patch
@@ -37,6 +39,141 @@ lint:
     bash -n install.sh
     bash -n bin/kanagawa-statusline
     @echo "lint ok"
+
+# Symlink the installed paths at this repo so edits land in Claude Code live.
+link:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo=$(cd "$(dirname "{{justfile()}}")" && pwd)
+    state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/kanagawa-statusline"
+    state_file="$state_dir/dev-link.state"
+    settings="$HOME/.claude/settings.json"
+    info() { printf '  • %s\n' "$*"; }
+    warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
+
+    mkdir -p "$state_dir" "$HOME/.claude" "$HOME/.local/bin"
+
+    was_installed=0
+    link_one() { # <dst> <src>
+      local dst=$1 src=$2
+      if [ -L "$dst" ]; then
+        local cur
+        cur=$(readlink "$dst")
+        if [ "$cur" = "$src" ]; then
+          info "already linked: $dst"
+          return
+        fi
+        info "removing stale symlink: $dst -> $cur"
+        rm "$dst"
+      elif [ -e "$dst" ]; then
+        info "real install at $dst — backing up flag, replacing with symlink"
+        was_installed=1
+        rm "$dst"
+      fi
+      ln -s "$src" "$dst"
+      info "linked: $dst -> $src"
+    }
+    link_one "$HOME/.claude/statusline-command.sh"   "$repo/statusline.sh"
+    link_one "$HOME/.local/bin/kanagawa-statusline"  "$repo/bin/kanagawa-statusline"
+
+    # Restore / create the .statusLine block in settings.json so Claude
+    # Code actually picks the symlinked script up.
+    if command -v jq >/dev/null 2>&1; then
+      if [ -f "$settings" ]; then
+        if jq -e '(.statusLine.command // "") | tostring | test("statusline-command\\.sh")' "$settings" >/dev/null 2>&1; then
+          info "$settings .statusLine already references the install path"
+        else
+          tmp=$(mktemp)
+          jq --arg cmd "bash $HOME/.claude/statusline-command.sh" \
+             '.statusLine = {type: "command", command: $cmd}' \
+             "$settings" > "$tmp" && mv "$tmp" "$settings"
+          info "wrote .statusLine block into $settings"
+        fi
+      else
+        cat > "$settings" <<JSON
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bash $HOME/.claude/statusline-command.sh"
+      }
+    }
+    JSON
+        info "created $settings with .statusLine block"
+      fi
+    else
+      warn "jq missing — could not auto-wire .statusLine in $settings"
+    fi
+
+    if [ "$was_installed" = "1" ]; then
+      printf 'restore-on-unlink\n' > "$state_file"
+      info "saved restore flag at $state_file"
+    fi
+
+    echo
+    info "linked. Edits to statusline.sh / bin/kanagawa-statusline are live."
+
+# Reverse `just link`; restore the prior install if there was one.
+unlink:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo=$(cd "$(dirname "{{justfile()}}")" && pwd)
+    state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/kanagawa-statusline"
+    state_file="$state_dir/dev-link.state"
+    settings="$HOME/.claude/settings.json"
+    info() { printf '  • %s\n' "$*"; }
+    warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; }
+
+    unlink_one() { # <dst> <expected_src>
+      local dst=$1 expected=$2
+      if [ -L "$dst" ]; then
+        local cur
+        cur=$(readlink "$dst")
+        if [ "$cur" = "$expected" ]; then
+          rm "$dst"
+          info "removed symlink: $dst"
+        else
+          info "not our symlink, leaving alone: $dst -> $cur"
+        fi
+      elif [ -e "$dst" ]; then
+        info "not a symlink, leaving alone: $dst"
+      else
+        info "not present: $dst"
+      fi
+    }
+    unlink_one "$HOME/.claude/statusline-command.sh"   "$repo/statusline.sh"
+    unlink_one "$HOME/.local/bin/kanagawa-statusline"  "$repo/bin/kanagawa-statusline"
+
+    if [ -f "$state_file" ]; then
+      echo
+      info "restore flag found — re-running install.sh from main"
+      if command -v curl >/dev/null 2>&1; then
+        if curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/install.sh | bash; then
+          rm -f "$state_file"
+          echo
+          warn "install.sh fetched whatever is on main right now, which may"
+          warn "differ from what you had installed before linking. Run:"
+          warn "    kanagawa-statusline update"
+          warn "if a newer release exists."
+        else
+          warn "install failed — state flag kept at $state_file; rerun later"
+        fi
+      else
+        warn "curl missing — cannot auto-restore. State flag kept at $state_file"
+      fi
+    else
+      echo
+      info "no prior install on record — symlinks removed, nothing to restore."
+      # Strip the .statusLine block we (probably) added during link, but
+      # only if it still references our install path. Match `uninstall`'s
+      # behavior so we don't leave a dangling reference.
+      if command -v jq >/dev/null 2>&1 && [ -f "$settings" ]; then
+        if jq -e '(.statusLine.command // "") | tostring | test("statusline-command\\.sh")' "$settings" >/dev/null 2>&1; then
+          tmp=$(mktemp)
+          jq 'del(.statusLine)' "$settings" > "$tmp" && mv "$tmp" "$settings"
+          info "stripped .statusLine block from $settings"
+        fi
+      fi
+    fi
 
 # Show what `just release <level>` would change, without touching anything.
 release-dry LEVEL="patch":
