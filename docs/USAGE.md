@@ -4,11 +4,15 @@
 
 | variant  | mood                       | best for                                         |
 |----------|----------------------------|--------------------------------------------------|
-| `wave`   | night, cool, violet+blue   | dark terminals (most users — default)            |
-| `dragon` | night, warm, earthy        | dark terminals, warmer/desaturated tones         |
-| `lotus`  | day, light                 | light terminal backgrounds                       |
-| `lean`   | muted dark monochromatic   | dark terminals, low-saturation/stealth aesthetic |
-| `off`    | disabled                   | hide the statusline entirely (empty output)      |
+| `wave`        | night, cool, violet+blue        | dark terminals (most users — default)            |
+| `dragon`      | night, warm, earthy             | dark terminals, warmer/desaturated tones         |
+| `lotus`       | day, light                      | light terminal backgrounds                       |
+| `wave-lean`   | muted sumiInk mono + wave fgs   | dark terminals, stealth aesthetic                |
+| `dragon-lean` | muted dragonBlack mono + dragon fgs | dark terminals, warm stealth aesthetic       |
+| `lotus-lean`  | muted lotusWhite mono + lotus fgs   | light terminals, low-saturation aesthetic    |
+| `off`         | disabled                        | hide the statusline entirely (empty output)      |
+
+Each `*-lean` palette uses a single-family monochromatic ramp for backgrounds (sumiInk for wave/dragon, lotusWhite for lotus) and low-contrast accent foregrounds. Powerline structure (bg fills + arrow separators) is identical to the base variants.
 
 ## CLI
 
@@ -16,7 +20,9 @@
 kanagawa-statusline wave            # set variant (cool night, default)
 kanagawa-statusline dragon          # set variant (warm earthy night)
 kanagawa-statusline lotus           # set variant (light theme)
-kanagawa-statusline lean            # set variant (muted dark monochromatic)
+kanagawa-statusline wave-lean       # set variant (wave, muted dark mono)
+kanagawa-statusline dragon-lean     # set variant (dragon, muted dark mono)
+kanagawa-statusline lotus-lean      # set variant (lotus, muted light mono)
 kanagawa-statusline off             # disable styling
 kanagawa-statusline status          # show current setting + installed version
 kanagawa-statusline version         # print installed version
@@ -84,7 +90,7 @@ The statusline runs a non-blocking, daily-cached probe of `/VERSION` on the repo
 ## Preview all variants
 
 ```bash
-for v in wave dragon lotus lean; do
+for v in wave dragon lotus wave-lean dragon-lean lotus-lean; do
   printf '\n--- %s ---\n' "$v"
   printf '{"model":{"display_name":"Opus 4.7"},"workspace":{"project_dir":"."},"effort":{"level":"xhigh"},"version":"2.1.121","context_window":{"used_percentage":42}}' \
     | KANAGAWA_VARIANT=$v STATUSLINE_DEMO=1 bash ~/.claude/statusline-command.sh

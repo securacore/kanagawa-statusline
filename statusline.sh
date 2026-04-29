@@ -34,8 +34,8 @@
 #    drop_order                      lang priority for graceful degradation
 #    cols=$(( cols - N ))            chrome buffer (right-edge alignment)
 #    STATUSLINE_DEMO=1               env flag — preview all 7 langs
-#    KANAGAWA_VARIANT=lean           muted dark monochromatic palette,
-#                                    full powerline structure preserved
+#    KANAGAWA_VARIANT=<base>-lean    muted monochromatic variant of base
+#                                    (wave-lean / dragon-lean / lotus-lean)
 #
 #  FEATURES
 #    • Per-project runtime version detection (node/bun/py/go/rust/zig/odin),
@@ -247,14 +247,15 @@ fi
 ESC=$'\e'
 RESET="${ESC}[0m"
 # ── Kanagawa palette (rebelot/kanagawa) ──────────────────────────────────
-# Four variants supported via KANAGAWA_VARIANT env var:
+# Variants supported via KANAGAWA_VARIANT env var:
 #   wave   — default night/cool   (violet → crystal blue → sumi-ink → orange)
 #   dragon — warm earthy night    (dragonViolet → dragonBlue2 → dragonBlack
 #                                  → dragonOrange)
 #   lotus  — light theme          (lotusViolet → lotusBlue → lotusGray
 #                                  → lotusOrange)
-#   lean   — muted dark mono       (sumiInk ramp bgs + subtle Kanagawa
-#                                  accent fgs; full powerline structure)
+# Each base also has a `-lean` form (wave-lean / dragon-lean / lotus-lean):
+# muted monochromatic bgs (single-family ramp) + low-contrast accent fgs.
+# Powerline structure is identical across all variants.
 # Hex values mapped to nearest ANSI 256.
 
 # Variant resolution order:
@@ -327,26 +328,55 @@ apply_palette() {
       X_BG=166;    X_FG=255             # lotusOrange (#CC6D00) — caveman
       U_BG=124;    U_FG=255             # lotusRed (#C84053) — update available
       ;;
-    lean)
-      # Lean — dark monochromatic palette, full powerline structure preserved.
-      # All segments sit on the sumiInk ramp (#16161D..#363646) so adjacent
-      # bgs differ enough for powerline arrows to read clearly, while overall
-      # appearance stays muted/stealth. Foregrounds use Kanagawa accents
-      # (crystalBlue, springGreen, fujiWhite) at low contrast.
+    wave-lean)
+      # Wave Lean — sumiInk dark monochromatic bgs + wave accent fgs.
+      # All bgs sit on the sumiInk ramp (#16161D..#363646); fgs use
+      # crystalBlue/springGreen/fujiWhite at low contrast. Powerline
+      # structure preserved.
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
       CTX_BG=238;  CTX_FG=110           # sumiInk6 + crystalBlue — context %
       A_BG=236;    A_FG=$FUJI_WHITE     # sumiInk4 + fujiWhite — model
       B_BG=234;    B_FG=107             # sumiInk2 + springGreen — branch
       C_BG=232;    C_FG=$OLD_WHITE      # sumiInk0 + oldWhite — cwd
-      GRAD_MIN=234; GRAD_MAX=240        # narrow dark-gray band — muted langs
+      GRAD_MIN=234; GRAD_MAX=240        # narrow dark-gray band
       Y_BG=236;    Y_FG=179             # sumiInk4 + boatYellow2 — style
       Z_BG=233;    Z_FG=110             # darker + crystalBlue — cli
       X_BG=237;    X_FG=215             # sumiInk5 + surimiOrange — caveman
-      U_BG=234;    U_FG=167             # sumiInk2 + samuraiRed — update available
+      U_BG=234;    U_FG=167             # sumiInk2 + samuraiRed — update
+      ;;
+    dragon-lean)
+      # Dragon Lean — dragonBlack ramp bgs + dragon accent fgs.
+      # Bgs use dragonBlack3..6 (#181616..#625E5A); fgs are dragonBlue2,
+      # dragonAqua, dragonGray, dragonRed at low contrast.
+      FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=234
+      CTX_BG=240;  CTX_FG=109           # dragonBlack6-ish + dragonBlue2
+      A_BG=237;    A_FG=$FUJI_WHITE     # dragonBlack5 + fujiWhite
+      B_BG=235;    B_FG=66              # dragonBlack4 + dragonAqua-ish
+      C_BG=233;    C_FG=$OLD_WHITE      # dragonBlack3 + oldWhite
+      GRAD_MIN=234; GRAD_MAX=240        # narrow dragon-dark band
+      Y_BG=236;    Y_FG=144             # dragonBlack + dragonYellow
+      Z_BG=233;    Z_FG=109             # darker + dragonBlue2 — cli
+      X_BG=237;    X_FG=180             # dragonBlack5 + dragonOrange2 — caveman
+      U_BG=234;    U_FG=167             # dragonBlack3 + dragonRed — update
+      ;;
+    lotus-lean)
+      # Lotus Lean — light cream/tan monochromatic bgs + lotus accent fgs.
+      # Inverted from wave/dragon-lean — bgs are light (lotusWhite tones),
+      # fgs are dark/saturated lotus accents (lotusViolet, lotusBlue4).
+      FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
+      CTX_BG=230;  CTX_FG=60            # very light cream + lotusViolet4
+      A_BG=187;    A_FG=24              # lotusWhite + lotusBlue4 — model
+      B_BG=144;    B_FG=234             # muted tan + dark sumi — branch
+      C_BG=137;    C_FG=230             # darker tan + light cream — cwd
+      GRAD_MIN=247; GRAD_MAX=253        # narrow light-gray band
+      Y_BG=186;    Y_FG=234             # lotusWhite5 + dark — style
+      Z_BG=144;    Z_FG=24              # muted tan + lotusBlue4 — cli
+      X_BG=187;    X_FG=166             # lotusWhite + lotusOrange — caveman
+      U_BG=186;    U_FG=124             # lotusWhite5 + lotusRed — update
       ;;
     *)
-      printf 'statusline: unknown KANAGAWA_VARIANT=%s (use: wave|dragon|lotus|lean)\n' \
-        "$KANAGAWA_VARIANT" >&2
+      printf 'statusline: unknown KANAGAWA_VARIANT=%s\n' "$KANAGAWA_VARIANT" >&2
+      printf '  valid: wave | dragon | lotus | wave-lean | dragon-lean | lotus-lean | off\n' >&2
       KANAGAWA_VARIANT=wave
       apply_palette
       return

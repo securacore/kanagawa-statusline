@@ -2,7 +2,7 @@
 
 ![Kanagawa Wave theme — preview](docs/preview.png)
 
-A simple [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI statusline themed after [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). Lualine-inspired Powerline rendering with four Kanagawa variants, dynamic per-project runtime detection, and graceful degradation on narrow terminals.
+A simple [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI statusline themed after [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim). Lualine-inspired Powerline rendering with three Kanagawa palettes (each available in a `-lean` muted form), dynamic per-project runtime detection, and graceful degradation on narrow terminals.
 
 ## Install
 
@@ -16,7 +16,9 @@ curl -fsSL https://raw.githubusercontent.com/securacore/kanagawa-statusline/main
 kanagawa-statusline wave        # cool night (default)
 kanagawa-statusline dragon      # warm earthy night
 kanagawa-statusline lotus       # light theme
-kanagawa-statusline lean        # muted dark monochromatic
+kanagawa-statusline wave-lean   # muted dark mono (wave family)
+kanagawa-statusline dragon-lean # muted dark mono (dragon family)
+kanagawa-statusline lotus-lean  # muted light mono (lotus family)
 kanagawa-statusline off         # disable styling
 kanagawa-statusline status      # show current variant + installed version
 kanagawa-statusline version     # print installed version
@@ -27,11 +29,11 @@ kanagawa-statusline uninstall   # remove all installed files
 
 ## Highlights
 
-- **Four Kanagawa variants** — `wave`, `dragon`, `lotus`, `lean`
+- **Kanagawa palettes** — `wave`, `dragon`, `lotus`, each with a `-lean` muted/monochromatic form
 - **Per-project runtime detection** — node, bun, python, go, rust, zig, odin
 - **Dynamic gradient** — N visible language segments map to N evenly-spaced gray stops
 - **Graceful degradation** — drops lower-priority segments when the line gets narrow
-- **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|lean|off>`
+- **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|off>`
 - **Update check + self-update** — daily background probe of the repo; renders an `update vX.Y.Z` segment when a new release lands. `kanagawa-statusline update` swaps in the latest version.
 
 ## Documentation
