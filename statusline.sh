@@ -479,6 +479,10 @@ add_left() { # <bg> <fg> <text>
     else
       left+=$(ltrans "$prev_bg" "$bg")
     fi
+  elif [ "$KANAGAWA_STYLE" = "text" ]; then
+    # Text mode has no leading cap, so the first segment's leading space
+    # would push content 1 column right. Trim it.
+    txt="${txt# }"
   fi
   left+=$(seg "$bg" "$fg" "$txt")
   prev_bg=$bg
