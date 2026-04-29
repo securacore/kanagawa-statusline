@@ -66,24 +66,26 @@ esac
 
 # ── settings.json wiring ────────────────────────────────────────────────
 SETTINGS="$DEST_DIR/settings.json"
-SNIPPET='{
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
-  }
-}'
+STATUSLINE_CMD="bash $HOME/.claude/statusline-command.sh"
 
 if [ -f "$SETTINGS" ]; then
-  if jq -e '.statusLine.command // ""' "$SETTINGS" 2>/dev/null \
-        | grep -q "statusline-command.sh"; then
+  if jq -e '(.statusLine.command // "") | tostring | test("statusline-command\\.sh")' \
+        "$SETTINGS" >/dev/null 2>&1; then
     info "settings.json already wired"
+  elif jq empty "$SETTINGS" >/dev/null 2>&1; then
+    tmp=$(mktemp)
+    jq --arg cmd "$STATUSLINE_CMD" \
+       '.statusLine = {type: "command", command: $cmd}' \
+       "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
+    info "merged statusLine block into $SETTINGS"
   else
-    warn "settings.json exists but does not reference statusline-command.sh"
+    warn "$SETTINGS is not valid JSON — refusing to overwrite"
     warn "merge this snippet manually:"
-    printf '\n%s\n\n' "$SNIPPET"
+    printf '\n{\n  "statusLine": {\n    "type": "command",\n    "command": "%s"\n  }\n}\n\n' "$STATUSLINE_CMD"
   fi
 else
-  printf '%s\n' "$SNIPPET" > "$SETTINGS"
+  jq -n --arg cmd "$STATUSLINE_CMD" \
+        '{statusLine: {type: "command", command: $cmd}}' > "$SETTINGS"
   info "wrote $SETTINGS with statusLine config"
 fi
 
