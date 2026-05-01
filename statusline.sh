@@ -72,6 +72,10 @@ KANAGAWA_STATUSLINE_VERSION="0.0.14"
 input=$(cat)
 
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
+# Strip a trailing "(… context)" parenthetical (e.g. "Opus 4.7 (1M context)").
+# The context window size is already rendered in the left anchor, so the
+# suffix would just duplicate it inside the model segment.
+model="${model% *\(*context\)}"
 effort=$(printf '%s' "$input" | jq -r '.effort.level // ""')
 [ -n "$effort" ] && model="$model 󱐋 $effort"
 # ── parse JSON from Claude Code (piped via stdin) ──────────────────────
