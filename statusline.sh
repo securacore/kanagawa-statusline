@@ -77,6 +77,16 @@ model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 # suffix would just duplicate it inside the model segment.
 model="${model% *\(*context\)}"
 effort=$(printf '%s' "$input" | jq -r '.effort.level // ""')
+# Fallback: Claude Code only emits .effort.level for models that support the
+# reasoning-effort parameter (notably absent on long-context variants like
+# claude-opus-4-7[1m]). When stdin omits it, surface the user's configured
+# preference from settings.json instead. Note this reflects the saved setting,
+# not the live session — `/effort` changes mid-session won't show until the
+# config is rewritten or stdin starts emitting the field.
+if [ -z "$effort" ]; then
+  cc_settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  [ -f "$cc_settings" ] && effort=$(jq -r '.effortLevel // ""' "$cc_settings" 2>/dev/null)
+fi
 [ -n "$effort" ] && model="$model 󱐋 $effort"
 # ── parse JSON from Claude Code (piped via stdin) ──────────────────────
 # Field schema: https://docs.claude.com/en/docs/claude-code/statusline
