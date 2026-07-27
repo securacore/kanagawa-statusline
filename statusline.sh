@@ -6,8 +6,8 @@
 #  Powerline glyphs and a violet → blue → sumi-ink → orange palette.
 #
 #  LEFT CLUSTER  (priority anchors)
-#    [ ctx % ] → [ model (effort) ] → [  branch ] → [ cwd basename ]
-#       violet         blue           dark-blue       sumi-ink5
+#    [ ctx % ] → [ model (effort) ] → [ cwd basename ] → [  branch ]
+#       violet         blue            dark-blue        sumi-ink5
 #
 #  RIGHT CLUSTER (lang gradient + warm exit)
 #    [ langs… (dark → light gray gradient) ] → [ cli version ] → [ caveman ]
@@ -358,8 +358,8 @@ apply_palette() {
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
       CTX_BG=60;   CTX_FG=$FUJI_WHITE   # deep violet anchor
       A_BG=110;    A_FG=$SUMI_FG        # crystalBlue — model
-      B_BG=24;     B_FG=$FUJI_WHITE     # waveBlue2 — branch
-      C_BG=237;    C_FG=$OLD_WHITE      # sumiInk5 — cwd dimmed
+      B_BG=24;     B_FG=$FUJI_WHITE     # waveBlue2 — cwd
+      C_BG=237;    C_FG=$OLD_WHITE      # sumiInk5 — branch dimmed
       GRAD_MIN=232; GRAD_MAX=250        # sumi-ink dark→light
       Y_BG=179;    Y_FG=$SUMI_FG        # boatYellow2 — style
       Z_BG=173;    Z_FG=$SUMI_FG        # muted dusty orange — cli
@@ -375,8 +375,8 @@ apply_palette() {
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=234
       CTX_BG=96;   CTX_FG=$FUJI_WHITE   # dragonViolet (#8992A7) — anchor
       A_BG=109;    A_FG=$SUMI_FG        # dragonBlue2 (#8BA4B0) — model
-      B_BG=66;     B_FG=$FUJI_WHITE     # dragonAqua-ish — branch
-      C_BG=235;    C_FG=$OLD_WHITE      # dragonBlack4 — cwd dimmed
+      B_BG=66;     B_FG=$FUJI_WHITE     # dragonAqua-ish — cwd
+      C_BG=235;    C_FG=$OLD_WHITE      # dragonBlack4 — branch dimmed
       GRAD_MIN=234; GRAD_MAX=247        # dragonBlack3 → dragonGray
       Y_BG=144;    Y_FG=$SUMI_FG        # dragonYellow — style
       Z_BG=180;    Z_FG=$SUMI_FG        # dragonOrange2 (#B98D7B) — cli
@@ -392,8 +392,8 @@ apply_palette() {
       FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
       CTX_BG=60;   CTX_FG=255           # lotusViolet4 — anchor
       A_BG=24;     A_FG=255             # lotusBlue4 — model
-      B_BG=152;    B_FG=$SUMI_FG        # lotusBlue3 (#9FB5C9) — branch
-      C_BG=187;    C_FG=$SUMI_FG        # lotusWhite-ish — cwd
+      B_BG=152;    B_FG=$SUMI_FG        # lotusBlue3 (#9FB5C9) — cwd
+      C_BG=187;    C_FG=$SUMI_FG        # lotusWhite-ish — branch
       GRAD_MIN=250; GRAD_MAX=255        # narrow light-gray band (stays in grayscale)
       Y_BG=178;    Y_FG=$SUMI_FG        # lotusYellow3 — style
       Z_BG=208;    Z_FG=$SUMI_FG        # lotusOrange2 — cli
@@ -408,8 +408,8 @@ apply_palette() {
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
       CTX_BG=238;  CTX_FG=110           # sumiInk6 + crystalBlue — context %
       A_BG=236;    A_FG=$FUJI_WHITE     # sumiInk4 + fujiWhite — model
-      B_BG=234;    B_FG=107             # sumiInk2 + springGreen — branch
-      C_BG=232;    C_FG=$OLD_WHITE      # sumiInk0 + oldWhite — cwd
+      B_BG=234;    B_FG=107             # sumiInk2 + springGreen — cwd
+      C_BG=232;    C_FG=$OLD_WHITE      # sumiInk0 + oldWhite — branch
       GRAD_MIN=234; GRAD_MAX=240        # narrow dark-gray band
       Y_BG=236;    Y_FG=179             # sumiInk4 + boatYellow2 — style
       Z_BG=233;    Z_FG=110             # darker + crystalBlue — cli
@@ -438,8 +438,8 @@ apply_palette() {
       FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
       CTX_BG=230;  CTX_FG=60            # very light cream + lotusViolet4
       A_BG=187;    A_FG=24              # lotusWhite + lotusBlue4 — model
-      B_BG=144;    B_FG=234             # muted tan + dark sumi — branch
-      C_BG=137;    C_FG=230             # darker tan + light cream — cwd
+      B_BG=144;    B_FG=234             # muted tan + dark sumi — cwd
+      C_BG=137;    C_FG=230             # darker tan + light cream — branch
       GRAD_MIN=247; GRAD_MAX=253        # narrow light-gray band
       Y_BG=186;    Y_FG=234             # lotusWhite5 + dark — style
       Z_BG=144;    Z_FG=24              # muted tan + lotusBlue4 — cli
@@ -452,8 +452,8 @@ apply_palette() {
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=235
       CTX_BG=0;    CTX_FG=110           # crystalBlue — context %
       A_BG=0;      A_FG=$FUJI_WHITE     # fujiWhite — model
-      B_BG=0;      B_FG=107             # springGreen — branch
-      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — cwd
+      B_BG=0;      B_FG=107             # springGreen — cwd
+      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — branch
       GRAD_MIN=144; GRAD_MAX=144        # uniform muted lang fg
       Y_BG=0;      Y_FG=179             # boatYellow2 — style
       Z_BG=0;      Z_FG=110             # crystalBlue — cli
@@ -466,8 +466,8 @@ apply_palette() {
       FUJI_WHITE=187; OLD_WHITE=144; SUMI_FG=234
       CTX_BG=0;    CTX_FG=109           # dragonBlue2 — context %
       A_BG=0;      A_FG=$FUJI_WHITE     # fujiWhite — model
-      B_BG=0;      B_FG=66              # dragonAqua-ish — branch
-      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — cwd
+      B_BG=0;      B_FG=66              # dragonAqua-ish — cwd
+      C_BG=0;      C_FG=$OLD_WHITE      # oldWhite — branch
       GRAD_MIN=144; GRAD_MAX=144        # uniform muted lang fg
       Y_BG=0;      Y_FG=144             # dragonYellow — style
       Z_BG=0;      Z_FG=109             # dragonBlue2 — cli
@@ -481,8 +481,8 @@ apply_palette() {
       FUJI_WHITE=234; OLD_WHITE=236; SUMI_FG=234
       CTX_BG=0;    CTX_FG=60            # lotusViolet4 — context %
       A_BG=0;      A_FG=24              # lotusBlue4 — model
-      B_BG=0;      B_FG=22              # dark green — branch
-      C_BG=0;      C_FG=234             # dark sumi — cwd
+      B_BG=0;      B_FG=22              # dark green — cwd
+      C_BG=0;      C_FG=234             # dark sumi — branch
       GRAD_MIN=137; GRAD_MAX=137        # uniform dark-tan lang fg
       Y_BG=0;      Y_FG=178             # lotusYellow3 — style
       Z_BG=0;      Z_FG=24              # lotusBlue4 — cli
@@ -557,12 +557,6 @@ if [ -n "$ctx_pct" ]; then
   first_bg=$CTX_BG
 fi
 [ -n "$model" ]    && { add_left "$A_BG" "$A_FG" " $model"; [ -z "$first_bg" ] && first_bg=$A_BG; }
-if [ -n "$branch" ]; then
-  branch_text="  $branch"
-  (( git_ahead  > 0 )) && branch_text+=" ↑$git_ahead"
-  (( git_behind > 0 )) && branch_text+=" ↓$git_behind"
-  add_left "$B_BG" "$B_FG" "$branch_text"
-fi
 if [ -n "$basename" ]; then
   cwd_text=" $basename"
   git_parts=()
@@ -570,7 +564,13 @@ if [ -n "$basename" ]; then
   (( git_modified  > 0 )) && git_parts+=("!$git_modified")
   (( git_untracked > 0 )) && git_parts+=("?$git_untracked")
   (( ${#git_parts[@]} > 0 )) && cwd_text+=" ${git_parts[*]}"
-  add_left "$C_BG" "$C_FG" "$cwd_text"
+  add_left "$B_BG" "$B_FG" "$cwd_text"
+fi
+if [ -n "$branch" ]; then
+  branch_text="  $branch"
+  (( git_ahead  > 0 )) && branch_text+=" ↑$git_ahead"
+  (( git_behind > 0 )) && branch_text+=" ↓$git_behind"
+  add_left "$C_BG" "$C_FG" "$branch_text"
 fi
 # leading cap (left-pointing angle in first segment's bg on default bg) + trailing arrow off last segment
 if [ -n "$prev_bg" ] && [ "$KANAGAWA_STYLE" != "text" ]; then

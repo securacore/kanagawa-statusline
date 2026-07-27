@@ -6,7 +6,7 @@
 flowchart LR
   subgraph LEFT["LEFT — anchors"]
     direction LR
-    ctx["ctx % 󰍛 size"] --> model["model (effort)"] --> branch[" branch ↑N ↓N"] --> cwd["cwd +N !N ?N"]
+    ctx["ctx % 󰍛 size"] --> model["model (effort)"] --> cwd["cwd +N !N ?N"] --> branch[" branch ↑N ↓N"]
   end
   subgraph RIGHT["RIGHT — gradient + warm exit"]
     direction LR
@@ -70,8 +70,8 @@ Each Kanagawa variant defines its own color tokens via `apply_palette()`. Hex va
 |-------------|-------------------|---------------------|--------------------|
 | ctx anchor  | 60 (deep violet)  | 96 (dragonViolet)   | 60 (lotusViolet4)  |
 | model       | 110 (crystalBlue) | 109 (dragonBlue2)   | 24 (lotusBlue4)    |
-| branch      | 24 (waveBlue2)    | 66 (dragonAqua-ish) | 152 (lotusBlue3)   |
-| cwd         | 237 (sumiInk5)    | 235 (dragonBlack4)  | 187 (lotusWhite)   |
+| cwd         | 24 (waveBlue2)    | 66 (dragonAqua-ish) | 152 (lotusBlue3)   |
+| branch      | 237 (sumiInk5)    | 235 (dragonBlack4)  | 187 (lotusWhite)   |
 | GRAD_MIN    | 232               | 234                 | 250                |
 | GRAD_MAX    | 250               | 247                 | 255                |
 | style       | 179 (boatYellow2) | 144 (dragonYellow)  | 178 (lotusYellow3) |

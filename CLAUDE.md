@@ -45,7 +45,7 @@ Single-file, top-to-bottom render pipeline. Every render is a fresh process spaw
 
 Two clusters:
 
-- **Left** (priority anchors, never dropped): ctx % → model+effort → branch → cwd basename
+- **Left** (priority anchors, never dropped): ctx % → model+effort → cwd basename → branch
 - **Right** (gradient + warm exit): lang segments (node/bun/py/go/rust/zig/odin) → style → cli version → caveman → update
 
 Key mechanics, all in `statusline.sh`:
