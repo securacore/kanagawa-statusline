@@ -86,7 +86,7 @@
 # remote check fetches /VERSION (cheap, ~10 bytes) and compares to this
 # constant. `kanagawa-statusline update` rewrites the whole script so this
 # value moves with each release.
-KANAGAWA_STATUSLINE_VERSION="0.0.14"
+KANAGAWA_STATUSLINE_VERSION="0.0.15"
 
 input=$(cat)
 
