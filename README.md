@@ -31,6 +31,7 @@ kanagawa-statusline wave-xlean   # text-only with ` │ ` divider (wave fgs, def
 kanagawa-statusline dragon-xlean # text-only with ` │ ` divider (dragon fgs)
 kanagawa-statusline lotus-xlean  # text-only with ` │ ` divider (lotus fgs)
 kanagawa-statusline off          # disable styling
+kanagawa-statusline logos on|off # show or hide the logos anchor segment
 kanagawa-statusline status      # show current variant + installed version
 kanagawa-statusline version     # print installed version
 kanagawa-statusline check       # check for a new release (synchronous)
@@ -45,6 +46,7 @@ kanagawa-statusline uninstall   # remove all installed files
 - **Dynamic gradient** — N visible language segments map to N evenly-spaced gray stops
 - **Graceful degradation** — drops lower-priority segments when the line gets narrow
 - **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|wave-xlean|dragon-xlean|lotus-xlean|off>`
+- **Logos anchor** — in a project using [logos](https://github.com/securacore/logos), a segment after the branch showing where work stands in that project's own plan: `◈ feature (7/9) › ticket`, with the glyph carrying the adoption mode. Read on a background refresh, never on the render path, and silent everywhere else. Toggle with `kanagawa-statusline logos on|off`.
 - **Update check + self-update** — daily background probe of the repo; renders an `update vX.Y.Z` segment when a new release lands. `kanagawa-statusline update` swaps in the latest version.
 
 ## Documentation

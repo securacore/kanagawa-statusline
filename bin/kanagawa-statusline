@@ -59,18 +59,43 @@ semver_cmp() { # <a> <b>
 
 mkdir -p "$CONFIG_DIR"
 
-current() {
+# Reads one key. Last assignment wins, matching how the statusline
+# sources the file.
+config_key() { # <KEY>
   if [ -f "$CONFIG_FILE" ]; then
-    grep -E '^VARIANT=' "$CONFIG_FILE" 2>/dev/null \
-      | tail -1 | cut -d= -f2-
+    grep -E "^$1=" "$CONFIG_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
   fi
 }
 
-set_variant() {
-  printf 'VARIANT=%s\n' "$1" > "$CONFIG_FILE"
-  printf 'kanagawa-statusline: variant set to %s\n' "$1"
+current() { config_key VARIANT; }
+
+# Rewrites one key and preserves every other line. This used to truncate
+# the file to a single VARIANT line, which was harmless while VARIANT was
+# the only key and silently destroys the rest now that it is not.
+set_key() { # <KEY> <value>
+  local tmp="$CONFIG_FILE.tmp"
+  {
+    [ -f "$CONFIG_FILE" ] && grep -vE "^$1=" "$CONFIG_FILE" || true
+    printf '%s=%s\n' "$1" "$2"
+  } > "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+}
+
+applies_note() {
   printf '  config: %s\n' "$CONFIG_FILE"
   printf '  applies on next statusline render (press Enter at the prompt)\n'
+}
+
+set_variant() {
+  set_key VARIANT "$1"
+  printf 'kanagawa-statusline: variant set to %s\n' "$1"
+  applies_note
+}
+
+set_logos() {
+  set_key LOGOS "$1"
+  printf 'kanagawa-statusline: logos anchor %s\n' "$1"
+  applies_note
 }
 
 case "${1:-}" in
@@ -145,8 +170,18 @@ EOF
     else
       printf 'kanagawa-statusline: no config set (defaulting to wave-xlean)\n'
     fi
+    printf '  logos anchor: %s\n' "$(config_key LOGOS || true)$([ -n "$(config_key LOGOS || true)" ] || printf 'on (default)')"
     [ -n "$iv" ] && printf '  installed version: %s\n' "$iv"
     printf '  config file: %s\n' "$CONFIG_FILE"
+    ;;
+  logos)
+    case "${2:-}" in
+      on|off) set_logos "$2" ;;
+      *)
+        printf 'kanagawa-statusline: usage: kanagawa-statusline logos <on|off>\n' >&2
+        exit 1
+        ;;
+    esac
     ;;
   version|--version|-V)
     iv=$(installed_version)
@@ -234,6 +269,7 @@ usage:
   kanagawa-statusline dragon-xlean      dragon, text-only with ` │ ` divider
   kanagawa-statusline lotus-xlean       lotus, text-only with ` │ ` divider
   kanagawa-statusline off               disable styling
+  kanagawa-statusline logos <on|off>    show or hide the logos anchor segment
   kanagawa-statusline status            show current setting + version
   kanagawa-statusline version           print installed version
   kanagawa-statusline check             check for a new release (synchronous)
@@ -247,6 +283,8 @@ config file:
 
 env overrides:
   KANAGAWA_VARIANT=<variant>          override config file
+  KANAGAWA_LOGOS=<0|1>                override LOGOS= config key (default on)
+  KANAGAWA_LOGOS_TTL=<seconds>        logos anchor refresh cadence (default 20)
   KANAGAWA_NO_UPDATE_CHECK=1          disable background update probe in statusline
   KANAGAWA_UPDATE_TTL=<seconds>       cadence of background probe (default 86400)
   KANAGAWA_STATUSLINE_REPO_RAW=<url>  override raw-content base URL

@@ -32,6 +32,7 @@ kanagawa-statusline wave-xlean      # set variant (wave, text-only + divider, de
 kanagawa-statusline dragon-xlean    # set variant (dragon, text-only + divider)
 kanagawa-statusline lotus-xlean     # set variant (lotus, text-only + divider)
 kanagawa-statusline off             # disable styling
+kanagawa-statusline logos on|off    # show or hide the logos anchor segment
 kanagawa-statusline status          # show current setting + installed version
 kanagawa-statusline version         # print installed version
 kanagawa-statusline check           # synchronously probe for a new release
@@ -92,8 +93,40 @@ The statusline runs a non-blocking, daily-cached probe of `/VERSION` on the repo
 |----------------------------------|---------------------------------------------------------------|--------------------------------------------------------------------------|
 | `KANAGAWA_NO_UPDATE_CHECK=1`     | Skip the background probe entirely                            | unset                                                                    |
 | `KANAGAWA_UPDATE_TTL=<seconds>`  | Probe cadence — cache lifetime before re-fetch                | `86400` (24h)                                                            |
+| `KANAGAWA_LOGOS=<0\|1>` | Hide or show the logos anchor; overrides the `LOGOS=` config key | `1`
+| `KANAGAWA_LOGOS_TTL=<seconds>` | Logos anchor cache lifetime before a background refresh | `20`
 | `KANAGAWA_VERSION_URL=<url>`     | Override the URL the statusline polls                         | `https://raw.githubusercontent.com/securacore/kanagawa-statusline/main/VERSION` |
 | `KANAGAWA_STATUSLINE_REPO_RAW=<url>` | Override the base URL `update`/`check` fetch from         | `https://raw.githubusercontent.com/securacore/kanagawa-statusline/main`   |
+
+
+## Logos anchor
+
+In a project adopted into [logos](https://github.com/securacore/logos), a segment after the branch shows where work stands in the project's own plan:
+
+| Shown | Means |
+|-------|-------|
+| `◈ cli-coherence (7/9) › statusline-read` | that ticket is being built, under that feature, which has 7 of its 9 tickets validated |
+| `◈ cli-coherence (7/9) › none` | the feature is active, no ticket in flight |
+| `◈ cli-coherence (7/9) › 2 building` | two tickets building, both under that feature |
+| `◈ 3 building` | three tickets building across different features |
+| `◈ 3 active` | three features active, none with a ticket in flight |
+| `◈` | logos is set up here, nothing active |
+| `◌ cli-coherence (7/9) › statusline-read` | same, but the adoption mode is not known |
+| *(nothing)* | the project does not use logos, or the segment is switched off |
+
+The count is validated tickets against the feature's total, and appears only where a single feature is named. It counts `validated` and nothing else: a ticket that has landed is code-complete awaiting its scenarios, not done.
+
+The glyph carries which adoption mode the project uses. `◈` means the state root is committed inside the repository; `◇` means it lives outside it, and the whole segment shifts to a cooler tone to match. Warm for state that lives here, cool for state that lives elsewhere.
+
+`◌` means the mode could not be determined — usually a logos older than the field, or a cache written before it existed. It is shown rather than guessed, because defaulting to `◈` would claim your state is committed here when nothing said so. The rest of the segment renders normally: only the mode is unknown, and the work beside it is not.
+
+A ticket never appears without its feature: ticket names describe the change they make, not the arc they serve, so a name alone tells you nothing. When several tickets or features are in play the segment shows a count rather than picking one, because nothing on disk records which is yours.
+
+The read (`logos status`) runs on a background refresh cached for `KANAGAWA_LOGOS_TTL` seconds, never on the render path, and the segment is skipped entirely when logos is not installed or the project is not adopted.
+
+On a narrow line it is the only part of the left cluster that gives way, shedding in this order: the count, then the ticket, then the feature, then the segment itself. The ticket goes before the feature because a ticket name is meaningless without the arc it belongs to, while a feature name still tells you where you are.
+
+Switch it off with `kanagawa-statusline logos off`, or per-shell with `KANAGAWA_LOGOS=0`. Resolution order matches the variant: `KANAGAWA_LOGOS` env, then the `LOGOS=` config key, then on. Switched off, the whole block is skipped: no cache read, no background refresh, no segment.
 
 ## Preview all variants
 
