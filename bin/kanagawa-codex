@@ -1,0 +1,769 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────
+#  kanagawa-codex — render the Kanagawa statusline for OpenAI Codex.
+# ─────────────────────────────────────────────────────────────────────────
+#  WHY THIS EXISTS
+#    Codex has no command-backed status line. `tui.status_line` accepts an
+#    ordered array of built-in item ids drawn by Codex itself; there is no
+#    equivalent of Claude Code's `statusLine.command` hook that pipes session
+#    JSON to an external renderer. Upstream request: openai/codex#17827
+#    (open since 2026-04-14; #20244 closed as a duplicate of it).
+#
+#    So the line is rendered OUTSIDE Codex's TUI, onto a surface Codex does
+#    not own: tmux's status-right, or a dedicated one-line pane.
+#
+#  ARCHITECTURE — control plane / data plane split
+#
+#      Codex hooks ─────▶ session descriptor      (control plane)
+#        SessionStart      $STATE_DIR/session-<id>.json
+#        UserPromptSubmit  {session_id, model, cwd, transcript_path, pane}
+#        Stop              event-driven, authoritative
+#        SessionEnd
+#
+#                    ┌──── renderer ────┐          (data plane)
+#                    │ picks descriptor  │
+#                    │ reads transcript  │
+#                    │ synthesizes Claude Code-shaped JSON
+#                    │ KANAGAWA_COLS=<w> statusline.sh
+#                    └────────┬──────────┘
+#                             ▼
+#                    $STATE_DIR/line-<key>  (atomic write)
+#                             ▼
+#                 tmux status-right / watch pane
+#
+#    Hooks answer *which session is live and where its transcript is* — only
+#    they know that reliably. The renderer answers *what does it look like
+#    right now*, on its own cadence. Codex hooks fire at discrete moments
+#    (prompt submit, tool boundaries, turn stop); between the start and end
+#    of a long tool call nothing fires at all. Driving the render off hook
+#    cadence would freeze the line during exactly the stretch you most want
+#    to watch context burn, so freshness is decoupled from event delivery.
+#
+#    Finding the newest rollout in ~/.codex/sessions by mtime would remove
+#    the hook dependency, and guesses wrong the moment two Codex sessions run
+#    at once. Hooks cost one config block and are authoritative; use them.
+#
+#  WHAT THE RENDERER IS
+#    statusline.sh is a pure function: JSON on stdin, ANSI line on stdout.
+#    Nothing here modifies it. This script only feeds it and places its
+#    output. Every variant, the gradient, graceful degradation, lang
+#    detection, git state and the logos anchor work unchanged, because all
+#    of those derive from cwd or from the JSON we synthesize.
+#
+#  USAGE
+#    kanagawa-codex init [--tmux]     wire Codex hooks (+ print tmux snippet)
+#    kanagawa-codex hook              stdin: Codex hook JSON (called by Codex)
+#    kanagawa-codex line [--pane ID]  cached line, re-rendered when stale
+#    kanagawa-codex render [--pane ID] [--width N]   force a render to stdout
+#    kanagawa-codex watch [-n SECS]   loop, for a dedicated one-line pane
+#    kanagawa-codex doctor            diagnose the wiring
+#    kanagawa-codex uninstall [-y]    remove hooks + state
+#
+#  REQUIREMENTS
+#    bash 4+, jq, and an installed statusline.sh. tmux only for the
+#    status-right surface.
+#
+#  VERIFIED AGAINST
+#    Codex hook payload fields (session_id, cwd, hook_event_name, model,
+#    transcript_path; turn_id on turn-scoped events) per the documented hooks
+#    reference. Token usage is NOT among them — see codex_context_usage().
+# ─────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kanagawa-statusline"
+CONFIG_FILE="$CONFIG_DIR/config"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+CODEX_CONFIG="$CODEX_HOME/config.toml"
+
+# Runtime state. XDG_RUNTIME_DIR when the platform provides one, else TMPDIR
+# suffixed with the uid — /tmp is world-writable and shared on Linux, and a
+# predictable shared path would let another user pre-create our files.
+_rt="${XDG_RUNTIME_DIR:-}"
+if [ -n "$_rt" ] && [ -d "$_rt" ]; then
+  STATE_DIR="$_rt/kanagawa-codex"
+else
+  STATE_DIR="${TMPDIR:-/tmp}/kanagawa-codex-$(id -u)"
+fi
+
+# Sessions older than this are treated as dead even without a SessionEnd —
+# Codex can be SIGKILLed, and a stale descriptor would otherwise pin the line
+# to a session that ended days ago.
+SESSION_TTL="${KANAGAWA_CODEX_SESSION_TTL:-28800}"   # 8h
+# How long a rendered line is served from cache before `line` re-renders.
+RENDER_TTL="${KANAGAWA_CODEX_RENDER_TTL:-2}"
+
+info() { printf '  • %s\n' "$*"; }
+warn() { printf '\033[33m  ! %s\033[0m\n' "$*" >&2; }
+fail() { printf '\033[31m  ✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || fail "missing required tool: $1"; }
+
+# Same mac/linux split statusline.sh uses.
+file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+
+# One key out of the shared config file. Same last-assignment-wins semantics
+# as the statusline and the variant CLI, so all three agree on the file.
+config_key() { # <KEY>
+  [ -f "$CONFIG_FILE" ] || return 0
+  grep -E "^$1=" "$CONFIG_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
+# ── renderer resolution ─────────────────────────────────────────────────
+# Installed copy first, then a sibling in a repo checkout (so `just link`
+# style development works without reinstalling).
+resolve_statusline() {
+  local c
+  for c in \
+    "${KANAGAWA_STATUSLINE_SH:-}" \
+    "$HOME/.claude/statusline-command.sh" \
+    "$(dirname "${BASH_SOURCE[0]}")/../statusline.sh"
+  do
+    [ -n "$c" ] && [ -f "$c" ] && { printf '%s' "$c"; return 0; }
+  done
+  return 1
+}
+
+# ── model presentation ──────────────────────────────────────────────────
+# Codex hands us a slug. Map the ones we know to the name a human uses, and
+# fall through to the slug otherwise — an unknown model shows as its slug
+# rather than as a guess or as nothing.
+model_display() { # <slug>
+  local s=$1
+  [ -z "$s" ] && return 0
+  case "$s" in
+    gpt-5-codex)        printf 'GPT-5 Codex' ;;
+    gpt-5-codex-mini)   printf 'GPT-5 Codex mini' ;;
+    gpt-5*)             printf 'GPT-5' ;;
+    o3*)                printf 'o3' ;;
+    o4*)                printf 'o4' ;;
+    # Claude slugs arrive here when Codex is pointed at Anthropic through a
+    # provider shim. Kept deliberately broad: the family is what the segment
+    # is for, and slug spellings churn faster than families do.
+    *opus*)             printf 'Opus' ;;
+    *sonnet*)           printf 'Sonnet' ;;
+    *haiku*)            printf 'Haiku' ;;
+    *)                  printf '%s' "$s" ;;
+  esac
+}
+
+# ── codex-side facts ────────────────────────────────────────────────────
+# `codex --version` is a process spawn; cache it for a day. Output shape is
+# "codex-cli 0.147.0", so keep only the semver.
+codex_version() {
+  local cache="$STATE_DIR/codex-version" age=999999 v
+  if [ -f "$cache" ]; then
+    age=$(( $(date +%s) - $(file_mtime "$cache") ))
+    [ "$age" -lt 86400 ] && { cat "$cache"; return 0; }
+  fi
+  command -v codex >/dev/null 2>&1 || return 0
+  v=$(codex --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) || true
+  [ -n "$v" ] && printf '%s' "$v" > "$cache" 2>/dev/null
+  printf '%s' "$v"
+}
+
+# Scalar out of config.toml. Deliberately not a TOML parser: we want three
+# known top-level scalars, and taking a dependency on one to read them would
+# cost more than it buys. Values with '#' or quotes-in-quotes fall through as
+# empty, which the callers already treat as "unknown".
+codex_scalar() { # <key>
+  [ -f "$CODEX_CONFIG" ] || return 0
+  grep -E "^[[:space:]]*$1[[:space:]]*=" "$CODEX_CONFIG" 2>/dev/null \
+    | tail -1 | cut -d= -f2- | tr -d ' "'\''' | cut -d'#' -f1 || true
+}
+
+# Codex has no output-style concept. Its natural occupant for that slot is
+# the approval posture, which is the thing you actually want to see at a
+# glance before you stop watching a turn.
+#
+# Abbreviated deliberately. The style segment is one the renderer never drops
+# (it ranks with cli and caveman above the lang gradient), so its width is
+# spent on every render at every terminal size. Claude Code's style names are
+# short enough for that to be free; Codex's raw pair is not —
+# "on-request/workspace-write" is 26 cells and would overrun a narrow surface
+# permanently, with no drop path to recover. Shortening here keeps the fix in
+# the adapter instead of weakening the renderer's priority contract.
+codex_approval() {
+  local a s
+  case "$(codex_scalar approval_policy)" in
+    untrusted)   a=ask-all ;;
+    on-failure)  a=on-fail ;;
+    on-request)  a=on-req ;;
+    never)       a=auto ;;
+    "")          a="" ;;
+    *)           a=$(codex_scalar approval_policy) ;;
+  esac
+  case "$(codex_scalar sandbox_mode)" in
+    read-only)          s=ro ;;
+    workspace-write)    s=ws ;;
+    danger-full-access) s=full ;;
+    "")                 s="" ;;
+    *)                  s=$(codex_scalar sandbox_mode) ;;
+  esac
+  if [ -n "$a" ] && [ -n "$s" ]; then printf '%s/%s' "$a" "$s"
+  elif [ -n "$a" ]; then printf '%s' "$a"
+  elif [ -n "$s" ]; then printf '%s' "$s"
+  fi
+}
+
+codex_effort() { codex_scalar model_reasoning_effort; }
+
+# ── context accounting ──────────────────────────────────────────────────
+#  ⚠ THE SWAP POINT ⚠
+#
+#  Codex hook payloads carry no token or context figures — the documented
+#  fields are session_id, cwd, hook_event_name, model, transcript_path, plus
+#  turn_id on turn-scoped events. The only route to a context percentage is
+#  aggregating usage records out of the rollout JSONL at transcript_path.
+#
+#  That format is undocumented and unpinned across Codex versions, and this
+#  implementation was written WITHOUT a sample to read. It therefore probes
+#  several plausible shapes and validates hard, and any mismatch returns
+#  empty rather than a number. Emitting empty makes the statusline skip the
+#  ctx segment entirely (see the `// ""` default in statusline.sh) instead of
+#  rendering a stale or invented percentage. Wrong-and-confident is the one
+#  outcome worth engineering against here.
+#
+#  To pin it to a real rollout: replace the body of codex_transcript_tokens
+#  with the actual record shape. Nothing else in this file needs to change.
+#
+#  Echoes "<used_tokens>" or nothing.
+codex_transcript_tokens() { # <transcript_path>
+  local tp=$1
+  [ -n "$tp" ] && [ -f "$tp" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+
+  # Last writer wins: scan the tail for the most recent record carrying a
+  # cumulative usage object, under any of the key spellings Codex has used
+  # for it. `total_tokens` when present, else the components summed.
+  tail -n 400 "$tp" 2>/dev/null | jq -rs '
+    def usage_of:
+      ( .token_usage? // .total_token_usage? // .usage?
+        // .info?.total_token_usage? // .payload?.token_usage? // empty );
+    def total_of:
+      if type != "object" then empty
+      elif (.total_tokens? | type) == "number" then .total_tokens
+      elif (.input_tokens? | type) == "number" then
+        ( (.input_tokens // 0) + (.output_tokens // 0)
+          + (.reasoning_output_tokens // 0) )
+      else empty end;
+    [ .[] | usage_of | total_of ] | last // empty
+  ' 2>/dev/null | grep -E '^[0-9]+$' | head -1 || true
+}
+
+# Denominator for the percentage. No guessing: an explicit override wins, a
+# confirmed table entry is next, and unknown means unknown.
+codex_context_window() { # <model-slug>
+  local m=$1 v
+  v="${KANAGAWA_CODEX_CTX_WINDOW:-}"
+  [ -z "$v" ] && v=$(config_key CODEX_CTX_WINDOW)
+  if [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -gt 0 ]; then printf '%s' "$v"; return 0; fi
+  # Intentionally empty pending confirmation against a real Codex instance.
+  # Add entries here only once observed; a wrong denominator produces a
+  # confidently wrong percentage, which is worse than no segment. Users can
+  # pin theirs today via KANAGAWA_CODEX_CTX_WINDOW or CODEX_CTX_WINDOW=.
+  case "$m" in
+    *) return 0 ;;
+  esac
+}
+
+# Echoes "<pct> <window>" when both are known, nothing otherwise.
+codex_context_usage() { # <transcript_path> <model>
+  local used win pct
+  used=$(codex_transcript_tokens "$1") || true
+  win=$(codex_context_window "$2") || true
+  [[ "$used" =~ ^[0-9]+$ ]] || return 0
+  [[ "$win" =~ ^[0-9]+$ ]] || return 0
+  [ "$win" -gt 0 ] || return 0
+  pct=$(( used * 100 / win ))
+  (( pct > 100 )) && pct=100
+  printf '%s %s' "$pct" "$win"
+}
+
+# ── descriptors ─────────────────────────────────────────────────────────
+descriptor_path() { # <session_id>
+  local safe
+  safe=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | head -c 128)
+  [ -n "$safe" ] || safe=unknown
+  printf '%s/session-%s.json' "$STATE_DIR" "$safe"
+}
+
+# Newest live descriptor, optionally constrained to a tmux pane.
+#
+# Pane binding works because tmux exports TMUX_PANE into the environment of
+# processes it spawns, and Codex's hook subprocesses inherit it. That gives
+# each Codex session an identity the tmux status line can match against, so
+# two sessions in two panes each draw their own line rather than fighting
+# over one. Sessions started outside tmux record an empty pane and are only
+# reachable by the unconstrained lookup.
+pick_descriptor() { # [pane]
+  local pane=${1:-} d best="" best_m=0 m dp now
+  now=$(date +%s)
+  for d in "$STATE_DIR"/session-*.json; do
+    [ -f "$d" ] || continue
+    m=$(file_mtime "$d")
+    (( now - m > SESSION_TTL )) && continue
+    if [ -n "$pane" ]; then
+      dp=$(jq -r '.pane // ""' "$d" 2>/dev/null) || continue
+      [ "$dp" = "$pane" ] || continue
+    fi
+    (( m > best_m )) && { best_m=$m; best=$d; }
+  done
+  [ -n "$best" ] && printf '%s' "$best"
+}
+
+cache_key() { # [pane]
+  local p=${1:-}
+  if [ -n "$p" ]; then printf '%s' "$p" | tr -cd 'A-Za-z0-9._%-'; else printf 'default'; fi
+}
+
+# ── payload synthesis ───────────────────────────────────────────────────
+# Produces the Claude Code statusline schema from Codex-side facts. This is
+# the whole adapter: everything downstream is the unmodified renderer.
+build_payload() { # <descriptor>
+  local d=$1 model cwd tp display effort ver style pct win usage
+  model=$(jq -r '.model // ""' "$d" 2>/dev/null) || model=""
+  cwd=$(jq -r '.cwd // ""' "$d" 2>/dev/null) || cwd=""
+  tp=$(jq -r '.transcript_path // ""' "$d" 2>/dev/null) || tp=""
+
+  display=$(model_display "$model")
+  effort=$(codex_effort)
+  ver=$(codex_version)
+  style=$(codex_approval)
+
+  pct=""; win=""
+  usage=$(codex_context_usage "$tp" "$model") || true
+  [ -n "$usage" ] && read -r pct win <<<"$usage"
+
+  # Segments whose source is absent are omitted rather than zeroed, so the
+  # renderer's existing skip paths do the degrading.
+  jq -n \
+    --arg model "$display" \
+    --arg effort "$effort" \
+    --arg cwd "$cwd" \
+    --arg ver "$ver" \
+    --arg style "$style" \
+    --arg pct "$pct" \
+    --arg win "$win" '
+    { model: { display_name: $model },
+      workspace: { project_dir: $cwd, current_dir: $cwd },
+      cwd: $cwd,
+      version: $ver }
+    + (if $effort != "" then { effort: { level: $effort } } else {} end)
+    + (if $style  != "" then { output_style: { name: $style } } else {} end)
+    + (if $pct != "" and $win != ""
+       then { context_window: { used_percentage: ($pct|tonumber),
+                                context_window_size: ($win|tonumber) } }
+       else {} end)
+  '
+}
+
+# Width of the surface we are drawing onto, which is generally NOT this
+# process's terminal. tmux knows its own client width; a bare pane does not,
+# so fall back to discovery there.
+surface_width() {
+  local w="${KANAGAWA_CODEX_WIDTH:-}"
+  [[ "$w" =~ ^[0-9]+$ ]] && { printf '%s' "$w"; return 0; }
+  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
+    w=$(tmux display -p '#{client_width}' 2>/dev/null) || true
+    [[ "$w" =~ ^[0-9]+$ ]] && { printf '%s' "$w"; return 0; }
+  fi
+  w=$(tput cols 2>/dev/null) || true
+  [[ "$w" =~ ^[0-9]+$ ]] && { printf '%s' "$w"; return 0; }
+  printf '120'
+}
+
+# Exit 2 = no live session (a state, not a fault). Exit 1 = the render itself
+# failed. Collapsing the two would report a missing hook every time the
+# renderer errored, sending you to fix wiring that was never broken.
+do_render() { # [pane] [width]
+  local pane=${1:-} width=${2:-} d sl empty
+  d=$(pick_descriptor "$pane") || true
+  [ -n "$d" ] || return 2
+  sl=$(resolve_statusline) || fail "no statusline.sh found (set KANAGAWA_STATUSLINE_SH)"
+  [ -n "$width" ] || width=$(surface_width)
+
+  # Claude Code's own state must not leak into a Codex line. Pointing
+  # CLAUDE_CONFIG_DIR at an empty directory makes the caveman badge and the
+  # settings.json effort fallback inert here without touching the renderer:
+  # both are guarded by file existence, and neither has a Codex analogue.
+  # A caveman flag left over from a Claude Code session would otherwise
+  # render on a Codex line and claim something untrue about it.
+  empty="$STATE_DIR/no-claude-config"
+  mkdir -p "$empty"
+
+  build_payload "$d" \
+    | CLAUDE_CONFIG_DIR="$empty" \
+      KANAGAWA_COLS="$width" \
+      KANAGAWA_CHROME="${KANAGAWA_CODEX_CHROME:-0}" \
+      bash "$sl"
+}
+
+# Atomic so a reader never catches a half-written line.
+write_line_cache() { # <key> <content>
+  local f="$STATE_DIR/line-$1" tmp
+  tmp=$(mktemp "$STATE_DIR/line.XXXXXX") || return 1
+  printf '%s' "$2" > "$tmp" && mv "$tmp" "$f"
+}
+
+# ── subcommands ─────────────────────────────────────────────────────────
+cmd_hook() {
+  need jq
+  mkdir -p "$STATE_DIR"
+  local payload sid ev cwd model tp d
+  payload=$(cat)
+
+  sid=$(jq -r '.session_id // ""'     <<<"$payload" 2>/dev/null) || return 0
+  ev=$(jq  -r '.hook_event_name // ""' <<<"$payload" 2>/dev/null) || return 0
+  [ -n "$sid" ] || return 0
+  d=$(descriptor_path "$sid")
+
+  if [ "$ev" = "SessionEnd" ]; then
+    rm -f "$d"
+    return 0
+  fi
+
+  cwd=$(jq   -r '.cwd // ""'             <<<"$payload" 2>/dev/null) || cwd=""
+  model=$(jq -r '.model // ""'           <<<"$payload" 2>/dev/null) || model=""
+  tp=$(jq    -r '.transcript_path // ""' <<<"$payload" 2>/dev/null) || tp=""
+
+  # Later events carry thinner payloads than SessionStart; merge rather than
+  # overwrite so a Stop event doesn't blank the model we already know.
+  local prev='{}'
+  [ -f "$d" ] && prev=$(cat "$d" 2>/dev/null) && [ -n "$prev" ] || prev='{}'
+
+  jq -n --argjson prev "$prev" \
+        --arg sid "$sid" --arg cwd "$cwd" --arg model "$model" \
+        --arg tp "$tp" --arg pane "${TMUX_PANE:-}" '
+    $prev
+    + { session_id: $sid }
+    + (if $cwd   != "" then { cwd: $cwd }              else {} end)
+    + (if $model != "" then { model: $model }          else {} end)
+    + (if $tp    != "" then { transcript_path: $tp }   else {} end)
+    + (if $pane  != "" then { pane: $pane }            else {} end)
+  ' > "$d.tmp" 2>/dev/null && mv "$d.tmp" "$d"
+
+  # Eager refresh so the line moves the instant a turn boundary lands,
+  # rather than waiting out the poll interval.
+  local key out
+  key=$(cache_key "${TMUX_PANE:-}")
+  if out=$(do_render "${TMUX_PANE:-}" 2>/dev/null); then
+    write_line_cache "$key" "$out" || true
+  fi
+  return 0
+}
+
+cmd_line() {
+  local pane="" key f age out
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pane) pane=${2:-}; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  [ -n "$pane" ] || pane="${TMUX_PANE:-}"
+  key=$(cache_key "$pane")
+  f="$STATE_DIR/line-$key"
+
+  age=999999
+  [ -f "$f" ] && age=$(( $(date +%s) - $(file_mtime "$f") ))
+  if [ "$age" -lt "$RENDER_TTL" ]; then
+    cat "$f"
+    return 0
+  fi
+
+  # Re-render inline. A lockdir keeps concurrent tmux redraws from stacking
+  # renders on top of each other; a loser serves the previous line rather
+  # than blocking the status bar. Same shape as the statusline's own update
+  # probe. Stale locks (>30s) are cleared so one crashed render cannot
+  # freeze the line permanently.
+  local lock="$STATE_DIR/render.lock"
+  if [ -d "$lock" ]; then
+    local lage
+    lage=$(( $(date +%s) - $(file_mtime "$lock") ))
+    (( lage > 30 )) && rmdir "$lock" 2>/dev/null || true
+  fi
+  if mkdir "$lock" 2>/dev/null; then
+    if out=$(do_render "$pane" 2>/dev/null); then
+      write_line_cache "$key" "$out" || true
+    fi
+    rmdir "$lock" 2>/dev/null || true
+  fi
+  [ -f "$f" ] && cat "$f"
+  return 0
+}
+
+cmd_render() {
+  need jq
+  mkdir -p "$STATE_DIR"
+  local pane="" width=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pane)  pane=${2:-};  shift 2 ;;
+      --width) width=${2:-}; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  local rc=0
+  do_render "$pane" "$width" || rc=$?
+  case "$rc" in
+    0) printf '\n' ;;
+    2) fail "no live Codex session found${pane:+ for pane $pane} — is the hook wired? (kanagawa-codex doctor)" ;;
+    *) fail "render failed — try: KANAGAWA_STATUSLINE_SH=<path> kanagawa-codex render" ;;
+  esac
+}
+
+cmd_watch() {
+  need jq
+  mkdir -p "$STATE_DIR"
+  local interval=2 pane=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -n|--interval) interval=${2:-2}; shift 2 ;;
+      --pane) pane=${2:-}; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  # Cursor hidden for the duration; restored on any exit path so a Ctrl-C
+  # does not leave the pane without a cursor.
+  printf '\033[?25l'
+  trap 'printf "\033[?25h\n"; exit 0' INT TERM EXIT
+  while :; do
+    local out=""
+    out=$(do_render "$pane" 2>/dev/null) || out=""
+    printf '\r\033[K%s' "$out"
+    sleep "$interval"
+  done
+}
+
+cmd_init() {
+  need jq
+  local want_tmux=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --tmux) want_tmux=1; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  mkdir -p "$STATE_DIR" "$CODEX_HOME"
+
+  # Must be absolute. Codex runs hook commands from the session's working
+  # directory, not from wherever `init` happened to be invoked, so a relative
+  # path here writes a config that works once and then never again.
+  local self
+  self=$(command -v kanagawa-codex 2>/dev/null) || self=""
+  case "$self" in
+    /*) ;;
+    *)  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")" ;;
+  esac
+  [ -x "$self" ] || warn "resolved hook command is not executable: $self"
+
+  local hooks_file="$CODEX_HOME/hooks.json"
+  if [ -f "$hooks_file" ] && grep -q 'kanagawa-codex' "$hooks_file" 2>/dev/null; then
+    info "Codex hooks already wired ($hooks_file)"
+  elif [ -f "$hooks_file" ]; then
+    warn "$hooks_file exists and does not mention kanagawa-codex"
+    warn "merge these events manually (async so Codex is never delayed):"
+    printf '\n'
+    print_hooks_json "$self"
+  else
+    print_hooks_json "$self" > "$hooks_file"
+    info "wrote $hooks_file"
+  fi
+
+  printf '\n'
+  if [ "$want_tmux" -eq 1 ]; then
+    cat <<EOF
+Add to ~/.tmux.conf — the line is per-pane, so two Codex sessions in two
+panes each draw their own:
+
+  set -g status-interval 2
+  set -g status-right '#(kanagawa-codex line --pane #{pane_id})'
+  set -g status-right-length 200
+
+Then: tmux source-file ~/.tmux.conf
+EOF
+  else
+    cat <<EOF
+Pick a surface:
+
+  tmux status bar   kanagawa-codex init --tmux   (prints the snippet)
+  dedicated pane    tmux split-window -l 1 'kanagawa-codex watch'
+
+Codex owns its TUI, so the line renders beside it, not inside it.
+EOF
+  fi
+}
+
+print_hooks_json() { # <self-path>
+  local self=$1
+  jq -n --arg cmd "$self hook" '
+    { hooks: (
+        [ "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd" ]
+        | map({ key: ., value: [ { hooks: [ { type: "command",
+                                              command: $cmd,
+                                              async: true,
+                                              timeout: 5 } ] } ] })
+        | from_entries
+      ) }'
+}
+
+cmd_doctor() {
+  local ok=1 sl d v
+  printf 'kanagawa-codex doctor\n\n'
+
+  for c in jq bash; do
+    if command -v "$c" >/dev/null 2>&1; then info "$c found"
+    else warn "$c MISSING"; ok=0; fi
+  done
+
+  if command -v codex >/dev/null 2>&1; then
+    v=$(codex_version); info "codex ${v:-(version unreadable)}"
+  else
+    warn "codex not on PATH (fine on a machine that only renders)"
+  fi
+
+  if sl=$(resolve_statusline); then info "renderer: $sl"
+  else warn "no statusline.sh found — set KANAGAWA_STATUSLINE_SH"; ok=0; fi
+
+  if [ -f "$CODEX_HOME/hooks.json" ] && grep -q 'kanagawa-codex' "$CODEX_HOME/hooks.json" 2>/dev/null; then
+    info "hooks wired: $CODEX_HOME/hooks.json"
+  else
+    warn "hooks not wired — run: kanagawa-codex init"; ok=0
+  fi
+
+  info "state dir: $STATE_DIR"
+  if d=$(pick_descriptor) && [ -n "$d" ]; then
+    info "live session: $(jq -r '.session_id // "?"' "$d" 2>/dev/null)"
+    info "  model:      $(jq -r '.model // "?"' "$d" 2>/dev/null)"
+    info "  cwd:        $(jq -r '.cwd // "?"' "$d" 2>/dev/null)"
+    info "  pane:       $(jq -r '.pane // "(not in tmux)"' "$d" 2>/dev/null)"
+    local tp used
+    tp=$(jq -r '.transcript_path // ""' "$d" 2>/dev/null)
+    if [ -n "$tp" ] && [ -f "$tp" ]; then
+      used=$(codex_transcript_tokens "$tp") || true
+      if [ -n "$used" ]; then
+        info "  tokens:     $used (transcript parse OK)"
+      else
+        warn "  tokens:     transcript parse found nothing — ctx segment will be omitted"
+        warn "              this is the known-unpinned part; see codex_transcript_tokens()"
+      fi
+      if [ -z "$(codex_context_window "$(jq -r '.model // ""' "$d" 2>/dev/null)")" ]; then
+        warn "  window:     unknown — set KANAGAWA_CODEX_CTX_WINDOW or CODEX_CTX_WINDOW="
+      fi
+    else
+      warn "  transcript: not readable at '$tp'"
+    fi
+  else
+    warn "no live Codex session recorded — start Codex and submit one prompt"
+  fi
+
+  local variant
+  variant=$(config_key VARIANT) || variant=""
+  printf '\nvariant: %s (shared with Claude Code)\n' "${variant:-wave-xlean (default)}"
+  [ "$ok" -eq 1 ] || exit 1
+}
+
+cmd_uninstall() {
+  local hooks_file="$CODEX_HOME/hooks.json"
+  cat <<EOF
+kanagawa-codex uninstall — this will remove:
+  - kanagawa-codex hook entries from $hooks_file
+  - $STATE_DIR/ (session descriptors + rendered lines)
+  - $0 (this CLI)
+
+Not touched: your tmux config (remove the status-right line yourself),
+statusline.sh, and the shared variant config.
+EOF
+  if [ "${1:-}" != "--yes" ] && [ "${1:-}" != "-y" ]; then
+    printf '\nProceed? [y/N] '
+    read -r ans
+    case "$ans" in [Yy]*) ;; *) echo "aborted"; exit 0 ;; esac
+  fi
+
+  # Only strip entries that are ours. A hooks.json someone else's tooling
+  # also writes into must survive this.
+  if [ -f "$hooks_file" ] && command -v jq >/dev/null 2>&1; then
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/kanagawa-codex-hooks.XXXXXX")
+    # Parenthesised deliberately: `.value |= f | g` parses as
+    # `(.value |= f) | g`, which would apply the group filter to the whole
+    # entry instead of to .value and silently leave our hooks in place.
+    if jq '
+      if .hooks then
+        .hooks |= with_entries(
+          .value |= (
+            map( .hooks |= map(select((.command // "") | test("kanagawa-codex") | not)) )
+            | map(select(((.hooks // []) | length) > 0))
+          )
+        )
+        | .hooks |= with_entries(select((.value | length) > 0))
+      else . end
+      | if ((.hooks // {}) | length) == 0 then del(.hooks) else . end
+    ' "$hooks_file" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+      mv "$tmp" "$hooks_file"
+      info "stripped kanagawa-codex hooks from $hooks_file"
+    else
+      rm -f "$tmp"
+      warn "could not rewrite $hooks_file — remove the entries manually"
+    fi
+  fi
+
+  rm -rf "$STATE_DIR" && info "removed $STATE_DIR/"
+  rm -f "$0"          && info "removed $0"
+  echo
+  echo "Done."
+}
+
+usage() {
+  cat <<'EOF'
+kanagawa-codex — Kanagawa statusline for OpenAI Codex.
+
+Codex has no command-backed status line (openai/codex#17827), so the line is
+rendered beside its TUI rather than inside it: tmux's status bar, or a
+dedicated one-line pane.
+
+usage:
+  kanagawa-codex init [--tmux]        wire Codex hooks; --tmux prints the
+                                      tmux status-right snippet
+  kanagawa-codex line [--pane ID]     cached line, re-rendered when stale
+                                      (this is what tmux calls)
+  kanagawa-codex render [--pane ID] [--width N]
+                                      force one render to stdout
+  kanagawa-codex watch [-n SECS]      redraw loop for a dedicated pane
+  kanagawa-codex hook                 stdin: Codex hook JSON (Codex calls it)
+  kanagawa-codex doctor               diagnose the wiring
+  kanagawa-codex uninstall [-y]       remove hooks + state
+  kanagawa-codex -h                   this help
+
+env:
+  KANAGAWA_CODEX_CTX_WINDOW=<n>   context window size for the ctx % segment;
+                                  without it the segment is omitted rather
+                                  than guessed
+  KANAGAWA_CODEX_WIDTH=<n>        force surface width
+  KANAGAWA_CODEX_CHROME=<n>       margin subtracted from width (default 0;
+                                  Claude Code's TUI uses 4)
+  KANAGAWA_CODEX_RENDER_TTL=<s>   cache lifetime for `line` (default 2)
+  KANAGAWA_CODEX_SESSION_TTL=<s>  descriptor lifetime (default 28800)
+  KANAGAWA_STATUSLINE_SH=<path>   renderer location override
+  CODEX_HOME=<path>               Codex config dir (default ~/.codex)
+
+config file (shared with Claude Code — one variant drives both):
+  $XDG_CONFIG_HOME/kanagawa-statusline/config
+    VARIANT=wave-xlean
+    CODEX_CTX_WINDOW=272000
+EOF
+}
+
+case "${1:-}" in
+  hook)              shift; cmd_hook "$@" ;;
+  line)              shift; cmd_line "$@" ;;
+  render)            shift; cmd_render "$@" ;;
+  watch)             shift; cmd_watch "$@" ;;
+  init)              shift; cmd_init "$@" ;;
+  doctor)            shift; cmd_doctor "$@" ;;
+  uninstall|remove)  shift; cmd_uninstall "${1:-}" ;;
+  -h|--help|help|"") usage ;;
+  *) printf 'kanagawa-codex: unknown command: %s\n' "$1" >&2; usage >&2; exit 1 ;;
+esac

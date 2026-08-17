@@ -48,11 +48,18 @@ kanagawa-statusline uninstall   # remove all installed files
 - **CLI variant switcher** — `kanagawa-statusline <wave|dragon|lotus|wave-lean|dragon-lean|lotus-lean|wave-xlean|dragon-xlean|lotus-xlean|off>`
 - **Logos anchor** — in a project using [logos](https://github.com/securacore/logos), a segment after the branch showing where work stands in that project's own plan: `◈ feature (7/9) › ticket`, with the glyph carrying the adoption mode. Read on a background refresh, never on the render path, and silent everywhere else. Toggle with `kanagawa-statusline logos on|off`.
 - **Update check + self-update** — daily background probe of the repo; renders an `update vX.Y.Z` segment when a new release lands. `kanagawa-statusline update` swaps in the latest version.
+- **Codex support** — the same line for [OpenAI Codex](https://developers.openai.com/codex), sharing one variant setting with Claude Code. Codex has no command-backed status line, so it renders beside the TUI in tmux or a spare pane. See [docs/CODEX.md](docs/CODEX.md).
 
-## Documentation
+## Codex
 
-- [docs/USAGE.md](docs/USAGE.md) — CLI commands, config file, env vars, variant gallery
-- [docs/INTERNALS.md](docs/INTERNALS.md) — architecture, palette knobs, customization
+Codex exposes no `statusLine.command` equivalent — `tui.status_line` only reorders built-in items ([openai/codex#17827](https://github.com/openai/codex/issues/17827)). `kanagawa-codex` bridges Codex's hooks to the same renderer and draws the result onto a surface Codex does not own:
+
+```bash
+kanagawa-codex init --tmux    # wire hooks, print the tmux snippet
+kanagawa-codex doctor         # verify end to end
+```
+
+One config file drives both harnesses, so `kanagawa-statusline dragon` re-themes Claude Code and Codex together. Full design notes, the segment mapping and the context-percentage caveat are in [docs/CODEX.md](docs/CODEX.md).
 
 ## Optional dependencies
 
@@ -77,3 +84,4 @@ Each `just release <level>` bumps `VERSION` and the embedded `KANAGAWA_STATUSLIN
 
 - [docs/USAGE.md](docs/USAGE.md) — CLI commands, config file, env vars, variant gallery
 - [docs/INTERNALS.md](docs/INTERNALS.md) — architecture, palette knobs, customization
+- [docs/CODEX.md](docs/CODEX.md) — OpenAI Codex support: architecture, setup, segment mapping

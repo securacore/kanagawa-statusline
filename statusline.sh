@@ -35,6 +35,8 @@
 #    Y_BG / Z_BG / X_BG              style / cli / caveman colors
 #    drop_order                      lang priority for graceful degradation
 #    cols=$(( cols - N ))            chrome buffer (right-edge alignment)
+#    KANAGAWA_COLS=<n>               force render width (wins over stty/tput;
+#                                    for surfaces that are not this terminal)
 #    STATUSLINE_DEMO=1               env flag — preview all 7 langs
 #    KANAGAWA_VARIANT=<base>-lean    muted monochromatic variant of base
 #                                    (wave-lean / dragon-lean / lotus-lean)
@@ -112,7 +114,12 @@ fi
 proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
 ver=$(printf '%s'  "$input" | jq -r '.version // ""')
 style=$(printf '%s' "$input" | jq -r '(.output_style.name // .output_style // "") | if type=="string" then . else "" end' | tr -d '\n\r')
-ctx_pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
+# Empty, not 0, when the host omits it. Claude Code always sends this field,
+# so an absent value means the caller genuinely has no context figure (the
+# Codex adapter, when transcript token accounting comes up empty). Rendering
+# "0%" there would assert a fresh context window rather than an unknown one;
+# the segment skips instead, matching how caveman and logos degrade.
+ctx_pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // ""')
 ctx_size_raw=$(printf '%s' "$input" | jq -r '.context_window.context_window_size // 0')
 
 # Render token count compactly: 1000000→1M, 1500000→1.5M, 200000→200K.
@@ -979,7 +986,12 @@ for ch in s:
 print(n)' "$s" 2>/dev/null || printf '%s' "$s" | wc -m
 }
 
-cols=$( { stty size </dev/tty | awk '{print $2}'; } 2>/dev/null )
+# KANAGAWA_COLS wins outright: a caller rendering into a surface that is not
+# this process's terminal (tmux status-right, a watch pane, a test harness)
+# knows the target width and we cannot discover it. Everything below is
+# discovery, and discovery must not override a caller who already knows.
+cols="${KANAGAWA_COLS:-}"
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=$( { stty size </dev/tty | awk '{print $2}'; } 2>/dev/null )
 [[ "$cols" =~ ^[0-9]+$ ]] || cols="${COLUMNS:-}"
 [[ "$cols" =~ ^[0-9]+$ ]] || cols=$(tput cols 2>/dev/null || echo 120)
 (( cols < 1 )) && cols=120

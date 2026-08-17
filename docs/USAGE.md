@@ -141,6 +141,34 @@ echo
 
 `STATUSLINE_DEMO=1` forces all 7 lang segments to render with placeholder versions, useful for previewing palettes.
 
+## Codex
+
+The same statusline for [OpenAI Codex](https://developers.openai.com/codex), via `kanagawa-codex`.
+
+Codex has no command-backed status line, so the line renders beside its TUI rather than inside it. Setup:
+
+```bash
+kanagawa-codex init --tmux    # wire Codex hooks, print the tmux snippet
+kanagawa-codex doctor         # verify the wiring end to end
+```
+
+```bash
+kanagawa-codex line [--pane ID]   cached line, re-rendered when stale (tmux calls this)
+kanagawa-codex render [--width N] force one render to stdout
+kanagawa-codex watch [-n SECS]    redraw loop for a dedicated pane
+kanagawa-codex uninstall [-y]     remove hooks + state
+```
+
+Both harnesses read the same config file, so `kanagawa-statusline dragon` re-themes Claude Code and Codex together.
+
+The ctx % segment needs a context window size that Codex does not report. Pin it, or the segment stays hidden:
+
+```
+CODEX_CTX_WINDOW=272000
+```
+
+Architecture, the full segment mapping and the context-percentage caveat: [CODEX.md](CODEX.md).
+
 ## Uninstall
 
 ```bash
@@ -154,6 +182,8 @@ Removes:
 - `~/.config/kanagawa-statusline/`
 - `~/.cache/kanagawa-statusline/` (update-check cache)
 - statusline runtime caches in `$TMPDIR`
+- `~/.local/bin/kanagawa-codex`, its Codex hook entries and its state (if installed)
+- the `statusLine` block in `~/.claude/settings.json`, **only** when it references this script
 
 > [!IMPORTANT]
-> `~/.claude/settings.json` is **not** auto-edited. Remove the `statusLine` block manually if you want the slot empty.
+> A `statusLine` block pointing at something else is left untouched, as is any `~/.codex/hooks.json` entry that is not ours. Your tmux config is never edited — remove the `status-right` line yourself.

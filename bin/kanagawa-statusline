@@ -23,6 +23,7 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kanagawa-statusline"
 CONFIG_FILE="$CONFIG_DIR/config"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kanagawa-statusline"
 STATUSLINE_FILE="$HOME/.claude/statusline-command.sh"
+CODEX_FILE="$(dirname "$0")/kanagawa-codex"
 REPO_RAW="${KANAGAWA_STATUSLINE_REPO_RAW:-https://raw.githubusercontent.com/securacore/kanagawa-statusline/main}"
 
 info() { printf '  • %s\n' "$*"; }
@@ -116,6 +117,7 @@ kanagawa-statusline uninstall — this will remove:
   - statusline runtime caches: $TMP_CACHE_GLOB
   - .statusLine block in $SETTINGS (only if it references this script;
     other statusLine commands are left alone)
+  - kanagawa-codex, its Codex hook entries and its state (if installed)
 EOF
 
     if [ "${2:-}" != "--yes" ] && [ "${2:-}" != "-y" ]; then
@@ -153,6 +155,18 @@ EOF
         fi
       else
         warn "jq not installed — leaving $SETTINGS untouched (remove .statusLine manually)"
+      fi
+    fi
+
+    # Delegate rather than duplicate: the Codex CLI is the only thing that
+    # knows how to strip its own hook entries without clobbering a hooks.json
+    # that other tooling also writes into.
+    CODEX_CLI="$(dirname "$0")/kanagawa-codex"
+    if [ -x "$CODEX_CLI" ]; then
+      if "$CODEX_CLI" uninstall --yes >/dev/null 2>&1; then
+        info "removed kanagawa-codex (Codex hooks + state)"
+      else
+        warn "kanagawa-codex uninstall failed — run \`$CODEX_CLI uninstall\` by hand"
       fi
     fi
 
@@ -246,9 +260,30 @@ EOF
     grep -qE '^KANAGAWA_STATUSLINE_VERSION=' "$tmp/statusline.sh" \
       || fail "downloaded statusline.sh missing version constant"
 
+    # The Codex CLI rides along only when it is already installed. Updating
+    # is not the moment to put a new executable on someone's PATH that they
+    # never asked for; install.sh is the path that adds artifacts. Its fetch
+    # failing must not abort an otherwise good update, so this whole block is
+    # soft — the core two files are what the version constant describes.
+    codex_staged=0
+    if [ -f "$CODEX_FILE" ] && [ -w "$CODEX_FILE" ]; then
+      info "fetching Codex CLI..."
+      if curl -fsSL --max-time 30 "$REPO_RAW/bin/kanagawa-codex" -o "$tmp/kanagawa-codex" \
+         && bash -n "$tmp/kanagawa-codex"; then
+        codex_staged=1
+      else
+        warn "Codex CLI fetch/syntax check failed — leaving $CODEX_FILE at its current version"
+      fi
+    fi
+
     chmod 0755 "$tmp/statusline.sh" "$tmp/kanagawa-statusline"
     mv "$tmp/statusline.sh"      "$STATUSLINE_FILE"
     mv "$tmp/kanagawa-statusline" "$0"
+    if [ "$codex_staged" = "1" ]; then
+      chmod 0755 "$tmp/kanagawa-codex"
+      mv "$tmp/kanagawa-codex" "$CODEX_FILE"
+      info "updated Codex CLI → $CODEX_FILE"
+    fi
     info "updated: ${iv:-unknown} → $rv"
 
     # Refresh the cache so the indicator clears on the next render.
@@ -276,6 +311,13 @@ usage:
   kanagawa-statusline update [-f]       self-update statusline + this CLI
   kanagawa-statusline uninstall [-y]    remove all installed files
   kanagawa-statusline -h                this help
+
+codex:
+  kanagawa-codex                        same statusline for OpenAI Codex.
+                                        Codex has no command-backed status
+                                        line, so it renders beside the TUI
+                                        (tmux status bar or a spare pane).
+                                        Start with: kanagawa-codex init --tmux
 
 config file:
   \$XDG_CONFIG_HOME/kanagawa-statusline/config

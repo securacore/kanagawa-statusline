@@ -16,6 +16,7 @@ DEST_DIR="$HOME/.claude"
 DEST_FILE="$DEST_DIR/statusline-command.sh"
 BIN_DIR="${KANAGAWA_STATUSLINE_BIN:-$HOME/.local/bin}"
 BIN_FILE="$BIN_DIR/kanagawa-statusline"
+CODEX_FILE="$BIN_DIR/kanagawa-codex"
 
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 info()  { printf '  • %s\n' "$*"; }
@@ -58,6 +59,9 @@ mkdir -p "$BIN_DIR"
 fetch_to bin/kanagawa-statusline "$BIN_FILE"
 info "installed CLI       → $BIN_FILE"
 
+fetch_to bin/kanagawa-codex "$CODEX_FILE"
+info "installed Codex CLI → $CODEX_FILE"
+
 # PATH check
 case ":$PATH:" in
   *":$BIN_DIR:"*) : ;;
@@ -96,5 +100,16 @@ echo "  2) wave   (cool night, full powerline)"
 echo "  3) dragon (warm earthy night)"
 echo "  4) lotus  (light theme)"
 echo "  Set KANAGAWA_VARIANT=<variant> in your shell rc; see \`kanagawa-statusline --help\` for full list."
+
+# ── codex (optional) ────────────────────────────────────────────────────
+# Wiring is not automatic: it edits ~/.codex/hooks.json and needs a surface
+# decision (tmux status bar vs. a dedicated pane) that only the user can make.
+if command -v codex >/dev/null 2>&1; then
+  bold "Codex detected"
+  echo "  Codex has no command-backed status line, so the line renders beside"
+  echo "  its TUI. To wire it up:"
+  echo "      kanagawa-codex init --tmux"
+  echo "      kanagawa-codex doctor"
+fi
 
 bold "Done. Reload Claude Code (or press Enter at the prompt)."
