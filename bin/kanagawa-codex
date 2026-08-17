@@ -76,14 +76,28 @@ CONFIG_FILE="$CONFIG_DIR/config"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 CODEX_CONFIG="$CODEX_HOME/config.toml"
 
-# Runtime state. XDG_RUNTIME_DIR when the platform provides one, else TMPDIR
-# suffixed with the uid — /tmp is world-writable and shared on Linux, and a
-# predictable shared path would let another user pre-create our files.
-_rt="${XDG_RUNTIME_DIR:-}"
-if [ -n "$_rt" ] && [ -d "$_rt" ]; then
-  STATE_DIR="$_rt/kanagawa-codex"
-else
-  STATE_DIR="${TMPDIR:-/tmp}/kanagawa-codex-$(id -u)"
+# Hooks run in an environment Codex hands us, not in a login shell, and the
+# renderer runs in yours. The two MUST resolve this path identically or the
+# control plane writes descriptors the data plane never finds — a failure
+# that presents as "wired, but no session ever recorded" with both halves
+# working perfectly in isolation.
+#
+# So it is anchored to HOME, which is set in essentially every spawned
+# environment. TMPDIR and XDG_RUNTIME_DIR were the original choice and are
+# exactly wrong here: both are routinely absent or different in a sanitized
+# child environment, and neither is guaranteed to agree across the boundary.
+# Durability is a side benefit; agreement is the requirement.
+STATE_DIR="${KANAGAWA_CODEX_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/kanagawa-codex}"
+
+# Codex may spawn hooks with a minimal PATH that omits the package manager's
+# prefix, which is where jq lives on most macOS installs. Discovery, not
+# assumption: only extend PATH when the tool is genuinely missing, so a
+# working environment is left untouched.
+if ! command -v jq >/dev/null 2>&1; then
+  for _p in /opt/homebrew/bin /usr/local/bin /usr/bin /bin /opt/local/bin; do
+    [ -d "$_p" ] && case ":$PATH:" in *":$_p:"*) ;; *) PATH="$PATH:$_p" ;; esac
+  done
+  export PATH
 fi
 
 # Sessions older than this are treated as dead even without a SessionEnd —
@@ -408,8 +422,20 @@ write_line_cache() { # <key> <content>
 
 # ── subcommands ─────────────────────────────────────────────────────────
 cmd_hook() {
+  # Breadcrumb first, before anything that can fail. Without it, "no session
+  # recorded" is ambiguous between Codex never invoking us and our dying on
+  # arrival, and those have nothing in common as diagnoses. The env snapshot
+  # is what makes a foreign-environment failure legible from your shell.
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
+  {
+    printf 'last_fire=%s\n' "$(date +%s 2>/dev/null || echo 0)"
+    printf 'PATH=%s\n'   "${PATH:-}"
+    printf 'TMPDIR=%s\n' "${TMPDIR:-}"
+    printf 'HOME=%s\n'   "${HOME:-}"
+    printf 'jq=%s\n'     "$(command -v jq 2>/dev/null || echo MISSING)"
+  } > "$STATE_DIR/last-hook" 2>/dev/null || true
+
   need jq
-  mkdir -p "$STATE_DIR"
   local payload sid ev cwd model tp d
   payload=$(cat)
 
@@ -634,6 +660,25 @@ cmd_doctor() {
   fi
 
   info "state dir: $STATE_DIR"
+
+  # Distinguishes "Codex never called us" from "Codex called us and we died",
+  # which is the single most useful bit when nothing is being recorded.
+  if [ -f "$STATE_DIR/last-hook" ]; then
+    local lf hook_jq
+    lf=$(grep -E '^last_fire=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2)
+    hook_jq=$(grep -E '^jq=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2-)
+    if [[ "$lf" =~ ^[0-9]+$ ]] && [ "$lf" -gt 0 ]; then
+      info "hook last fired: $(( ( $(date +%s) - lf ) / 60 ))m ago"
+    fi
+    if [ "$hook_jq" = "MISSING" ]; then
+      warn "  the hook could not find jq in Codex's PATH — that is why nothing is recorded"
+      warn "  hook PATH was: $(grep -E '^PATH=' "$STATE_DIR/last-hook" | cut -d= -f2-)"
+    fi
+  else
+    warn "hook has NEVER fired — Codex is not invoking it"
+    warn "  check: jq '.hooks' $CODEX_HOME/hooks.json, and that [features] hooks is not false"
+  fi
+
   if d=$(pick_descriptor) && [ -n "$d" ]; then
     info "live session: $(jq -r '.session_id // "?"' "$d" 2>/dev/null)"
     info "  model:      $(jq -r '.model // "?"' "$d" 2>/dev/null)"
@@ -711,6 +756,22 @@ EOF
   fi
 
   rm -rf "$STATE_DIR" && info "removed $STATE_DIR/"
+
+  # Pre-0.0.17 state lived under TMPDIR/XDG_RUNTIME_DIR. Those paths are
+  # orphaned by the move and nothing else will ever reap them, so uninstall
+  # owns them too. Guarded on the uid suffix so a bad expansion cannot widen
+  # the target.
+  local uid legacy
+  uid=$(id -u 2>/dev/null || echo "")
+  if [ -n "$uid" ]; then
+    for legacy in "${TMPDIR:-/tmp}/kanagawa-codex-$uid" "/tmp/kanagawa-codex-$uid" \
+                  "${XDG_RUNTIME_DIR:-/nonexistent}/kanagawa-codex"; do
+      case "$legacy" in
+        */kanagawa-codex-"$uid"|*/kanagawa-codex)
+          [ -d "$legacy" ] && rm -rf "$legacy" && info "removed legacy state $legacy/" ;;
+      esac
+    done
+  fi
   rm -f "$0"          && info "removed $0"
   echo
   echo "Done."

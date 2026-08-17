@@ -146,8 +146,30 @@ kanagawa-codex uninstall [-y]     remove hooks + state
 | `KANAGAWA_CODEX_CHROME` | `0` | margin subtracted from width (Claude Code's TUI uses `4`) |
 | `KANAGAWA_CODEX_RENDER_TTL` | `2` | seconds a rendered line is served from cache |
 | `KANAGAWA_CODEX_SESSION_TTL` | `28800` | descriptor lifetime; guards against a SIGKILLed Codex pinning the line |
+| `KANAGAWA_CODEX_STATE_DIR` | `$XDG_STATE_HOME/kanagawa-codex` | where descriptors and rendered lines live |
 | `KANAGAWA_STATUSLINE_SH` | auto | renderer location override |
 | `CODEX_HOME` | `~/.codex` | Codex config directory |
+
+## Troubleshooting
+
+Run `kanagawa-codex doctor` first. It distinguishes the three states that otherwise look identical from the outside:
+
+| Doctor says | Meaning |
+|---|---|
+| `hook has NEVER fired` | Codex is not invoking the hook. Check `jq '.hooks' ~/.codex/hooks.json` and that `[features] hooks` is not `false`. |
+| `hook last fired: Nm ago` but no live session | The hook ran and died partway. The lines beneath name the cause. |
+| `could not find jq in Codex's PATH` | Codex spawned the hook with a PATH that omits your package manager's prefix. |
+
+### The foreign-environment constraint
+
+Hooks run in an environment Codex hands them; the renderer runs in yours. Anything the two disagree about splits the control plane from the data plane, and the symptom is always the same and always misleading: everything reports as wired, both halves work perfectly when tested by hand, and no session is ever recorded.
+
+Two concrete instances, both fixed in 0.0.17 and both worth knowing if you extend this:
+
+- **State location.** It is anchored to `HOME` rather than `TMPDIR` or `XDG_RUNTIME_DIR`. Those are routinely absent or different in a spawned child, so descriptors were being written to `/tmp/kanagawa-codex-$UID` while the renderer looked under the shell's `TMPDIR`. Durability is a side benefit; **agreement across the boundary is the requirement**.
+- **Tool discovery.** The hook extends `PATH` with the usual package-manager prefixes, but only when `jq` is genuinely missing, so a working environment is left alone.
+
+The breadcrumb at `$STATE_DIR/last-hook` records the environment of the most recent hook invocation. It is written before anything that can fail, which is what makes a foreign-environment failure legible from your shell rather than invisible.
 
 ## Renderer changes this required
 
