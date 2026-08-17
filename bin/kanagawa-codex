@@ -146,9 +146,24 @@ model_display() { # <slug>
   local s=$1
   [ -z "$s" ] && return 0
   case "$s" in
-    gpt-5-codex)        printf 'GPT-5 Codex' ;;
-    gpt-5-codex-mini)   printf 'GPT-5 Codex mini' ;;
-    gpt-5*)             printf 'GPT-5' ;;
+    # Derived, not enumerated. A fixed table silently degrades as OpenAI
+    # ships variants: gpt-5.6-sol collapsed to a bare "GPT-5" under the old
+    # prefix match, discarding both the version and the variant that
+    # distinguish it from every other GPT-5. Splitting version from variant
+    # keeps unreleased names rendering correctly.
+    gpt-*)
+      local rest ver suffix
+      rest=${s#gpt-}                       # 5.6-sol
+      ver=${rest%%-*}                      # 5.6
+      suffix=${rest#*-}                    # sol
+      [ "$suffix" = "$rest" ] && suffix=""
+      suffix=${suffix//-/ }                # codex-mini -> codex mini
+      if [ -n "$suffix" ]; then
+        printf 'GPT-%s %s' "$ver" "${suffix^}"
+      else
+        printf 'GPT-%s' "$ver"
+      fi
+      ;;
     o3*)                printf 'o3' ;;
     o4*)                printf 'o4' ;;
     # Claude slugs arrive here when Codex is pointed at Anthropic through a
@@ -590,17 +605,22 @@ cmd_init() {
   esac
   [ -x "$self" ] || warn "resolved hook command is not executable: $self"
 
-  local hooks_file="$CODEX_HOME/hooks.json"
-  if [ -f "$hooks_file" ] && grep -q 'kanagawa-codex' "$hooks_file" 2>/dev/null; then
-    info "Codex hooks already wired ($hooks_file)"
-  elif [ -f "$hooks_file" ]; then
-    warn "$hooks_file exists and does not mention kanagawa-codex"
-    warn "merge these events manually (async so Codex is never delayed):"
+  # Always rewrite our entries rather than reporting "already wired" and
+  # leaving a stale file in place. Re-running init is how a user picks up a
+  # corrected hook definition, so it has to actually correct one.
+  local hooks_file="$CODEX_HOME/hooks.json" had_async=0
+  [ -f "$hooks_file" ] && grep -q '"async"' "$hooks_file" 2>/dev/null && had_async=1
+
+  if write_hooks_json "$self" "$hooks_file"; then
+    if [ "$had_async" = "1" ]; then
+      info "migrated $hooks_file — removed the async field Codex skips"
+    else
+      info "wrote $hooks_file"
+    fi
+  else
+    warn "could not write $hooks_file — merge this by hand:"
     printf '\n'
     print_hooks_json "$self"
-  else
-    print_hooks_json "$self" > "$hooks_file"
-    info "wrote $hooks_file"
   fi
 
   # Without this the file above is inert, so it is part of wiring, not an
@@ -635,17 +655,59 @@ EOF
 # setting it bought nothing and misled this script's own design: hooks run
 # synchronously, on Codex's critical path. cmd_hook detaches its render
 # itself rather than relying on a flag Codex ignores.
+HOOK_EVENTS='["SessionStart","UserPromptSubmit","PostToolUse","Stop","SessionEnd"]'
+
 print_hooks_json() { # <self-path>
   local self=$1
-  jq -n --arg cmd "$self hook" '
+  jq -n --argjson events "$HOOK_EVENTS" --arg cmd "$self hook" '
     { description: "kanagawa-statusline: feed the Codex statusline renderer",
-      hooks: (
-        [ "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd" ]
+      hooks: ( $events
         | map({ key: ., value: [ { hooks: [ { type: "command",
                                               command: $cmd,
-                                              timeout: 5 } ] } ] })
+                                              timeout: 3 } ] } ] })
         | from_entries
       ) }'
+}
+
+# Rewrites OUR entries in place and leaves anyone else's alone.
+#
+# `init` must be able to migrate an installed file, not only create a fresh
+# one. Shipping a corrected generator does nothing for someone who already
+# ran the old one, which is exactly how the async field survived the release
+# that removed it: init saw "already wired" and skipped the file entirely.
+write_hooks_json() { # <self-path> <hooks-file>
+  local self=$1 f=$2 base='{}' tmp
+  if [ -f "$f" ]; then
+    base=$(cat "$f" 2>/dev/null) || base='{}'
+    [ -n "$base" ] || base='{}'
+    if ! printf '%s' "$base" | jq empty >/dev/null 2>&1; then
+      warn "$f is not valid JSON — refusing to rewrite it"
+      return 1
+    fi
+    cp "$f" "$f.bak" 2>/dev/null || true
+  fi
+
+  tmp="$f.kanagawa.tmp"
+  jq -n --argjson base "$base" --argjson events "$HOOK_EVENTS" \
+        --arg cmd "$self hook" \
+        --arg desc "kanagawa-statusline: feed the Codex statusline renderer" '
+    def strip_ours:
+      if .hooks then
+        .hooks |= with_entries(
+          .value |= (
+            map( .hooks |= map(select((.command // "") | test("kanagawa-codex") | not)) )
+            | map(select(((.hooks // []) | length) > 0))
+          ))
+        | .hooks |= with_entries(select((.value | length) > 0))
+      else . end;
+    ($base | strip_ours)
+    | .description = (.description // $desc)
+    | .hooks = ( reduce $events[] as $e
+                   ((.hooks // {});
+                    .[$e] = ((.[$e] // []) + [{ hooks: [ { type: "command",
+                                                           command: $cmd,
+                                                           timeout: 3 } ] }])) )
+  ' > "$tmp" 2>/dev/null && mv "$tmp" "$f"
 }
 
 # Codex silently ignores hooks.json unless this flag is set. Nothing warns,
@@ -658,37 +720,44 @@ print_hooks_json() { # <self-path>
 # first, and it appends a well-formed table rather than attempting a general
 # TOML rewrite. `[features]` is matched exactly so `[features.foo]` cannot be
 # mistaken for it.
+# The hooks feature defaults to ON, so the correct action here is almost
+# always none. An earlier version of this script wrote `codex_hooks = true`,
+# which is the deprecated spelling and made Codex print a deprecation banner
+# on every start — noise this script created and therefore owns cleaning up.
+#
+# Writing nothing when nothing is needed is the point: config.toml belongs to
+# the user, and a flag set to its own default is not configuration, it is
+# clutter that later reads as deliberate.
 ensure_hooks_flag() {
-  local f="$CODEX_CONFIG" tmp
-  if [ -f "$f" ] && grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" 2>/dev/null; then
-    local cur
-    cur=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" | tail -1 | cut -d= -f2- | tr -d ' ') || true
-    if [ "$cur" = "true" ]; then
-      info "[features] codex_hooks = true already set"
+  local f="$CODEX_CONFIG" cur dep tmp
+  [ -f "$f" ] || { info "hooks are enabled by default — no config change needed"; return 0; }
+
+  cur=$(grep -E '^[[:space:]]*hooks[[:space:]]*=' "$f" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d ' ') || true
+  dep=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d ' ') || true
+  # See doctor: a non-boolean is the unrelated top-level `hooks = "<path>"`
+  # key, so treat it as "flag not present" rather than as a value to act on.
+  case "$cur" in true|false) ;; *) cur="" ;; esac
+
+  # Migrate the deprecated key we may have written ourselves.
+  if [ -n "$dep" ]; then
+    cp "$f" "$f.bak" 2>/dev/null || true
+    tmp="$f.kanagawa.tmp"
+    if [ -n "$cur" ]; then
+      grep -vE '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" > "$tmp" && mv "$tmp" "$f"
+      info "removed deprecated codex_hooks (hooks = $cur already set) — backup: $f.bak"
     else
-      warn "[features] codex_hooks = $cur in $f — hooks will NOT fire until it is true"
+      sed -E 's/^([[:space:]]*)codex_hooks([[:space:]]*=)/\1hooks\2/' "$f" > "$tmp" && mv "$tmp" "$f"
+      cur=$dep
+      info "renamed deprecated codex_hooks → hooks (backup: $f.bak)"
     fi
-    return 0
   fi
 
-  if [ ! -f "$f" ]; then
-    mkdir -p "$(dirname "$f")"
-    printf '[features]\ncodex_hooks = true\n' > "$f"
-    info "created $f with [features] codex_hooks = true"
-    return 0
-  fi
-
-  cp "$f" "$f.bak" 2>/dev/null || true
-  tmp="$f.kanagawa.tmp"
-  if grep -qE '^[[:space:]]*\[features\][[:space:]]*$' "$f"; then
-    awk '{ print }
-         /^[[:space:]]*\[features\][[:space:]]*$/ && !done { print "codex_hooks = true"; done=1 }' \
-      "$f" > "$tmp" && mv "$tmp" "$f"
-    info "added codex_hooks = true to the existing [features] table (backup: $f.bak)"
-  else
-    printf '\n[features]\ncodex_hooks = true\n' >> "$f"
-    info "appended [features] codex_hooks = true to $f (backup: $f.bak)"
-  fi
+  case "$cur" in
+    false) warn "[features] hooks = false in $f — hooks are DISABLED; set it to true" ;;
+    true)  info "[features] hooks = true" ;;
+    "")    info "hooks are enabled by default — no config change needed" ;;
+    *)     warn "[features] hooks = $cur in $f — expected true" ;;
+  esac
 }
 
 cmd_doctor() {
@@ -716,22 +785,33 @@ cmd_doctor() {
     warn "hooks not wired — run: kanagawa-codex init"; ok=0
   fi
 
-  # The single most common reason a correct hooks.json does nothing.
+  # Checked before the feature flag because this is the fault that actually
+  # bites: an async field disables every event carrying it. Codex says so on
+  # startup, but nothing surfaces it once the banner scrolls away.
+  if [ -f "$CODEX_HOME/hooks.json" ] && grep -q '"async"' "$CODEX_HOME/hooks.json" 2>/dev/null; then
+    warn "hooks.json contains an \"async\" field — Codex SKIPS those hooks entirely"
+    warn "  run: kanagawa-codex init   (migrates the file in place)"; ok=0
+  fi
+
   # `|| true` is load-bearing: grep exits 1 on no-match and 2 on a missing
   # file, and pipefail turns either into an assignment failure that set -e
   # treats as fatal. Doctor's whole job is running when things are missing,
   # so every probe here must survive absence.
-  local flag
-  flag=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$CODEX_CONFIG" 2>/dev/null \
+  local flag dep
+  flag=$(grep -E '^[[:space:]]*hooks[[:space:]]*=' "$CODEX_CONFIG" 2>/dev/null \
          | tail -1 | cut -d= -f2- | tr -d ' ') || true
-  if [ "$flag" = "true" ]; then
-    info "[features] codex_hooks = true"
-  elif [ -n "$flag" ]; then
-    warn "[features] codex_hooks = $flag — hooks are DISABLED; set it to true"; ok=0
-  else
-    warn "[features] codex_hooks is NOT set in $CODEX_CONFIG"
-    warn "  Codex silently ignores hooks.json without it — run: kanagawa-codex init"; ok=0
-  fi
+  dep=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$CODEX_CONFIG" 2>/dev/null \
+        | tail -1 | cut -d= -f2- | tr -d ' ') || true
+  [ -n "$dep" ] && warn "[features] codex_hooks is deprecated — run init to rename it to hooks"
+  # Only a boolean is our flag. config.toml also accepts a top-level
+  # `hooks = "<path>"` naming a hooks file, and this probe is section-blind,
+  # so a non-boolean here is that unrelated key rather than a misconfigured
+  # toggle. Reporting it as one would send you to fix a correct line.
+  case "$flag" in
+    false) warn "[features] hooks = false — hooks are DISABLED"; ok=0 ;;
+    true)  info "[features] hooks = true" ;;
+    *)     info "[features] hooks unset (defaults to enabled)" ;;
+  esac
 
   info "state dir: $STATE_DIR"
 

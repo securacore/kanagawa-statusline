@@ -60,20 +60,28 @@ kanagawa-codex doctor         # verify the wiring end to end
 
 `init` writes hook entries for `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop` and `SessionEnd`. An existing `hooks.json` that does not mention `kanagawa-codex` is never rewritten; the snippet is printed for you to merge.
 
-### The flag that makes hooks real
+Re-running `init` **migrates** an existing file rather than reporting it as already wired. That matters more than it sounds: a corrected hook definition reaches nobody who already ran the previous version unless init rewrites what is installed.
+
+### Never set `async`
+
+Codex **skips async hooks entirely** — `async hooks are not supported yet`, printed once per offending hook at startup and then gone from view. Every event carrying the field is silently disabled for the rest of the session, which presents as hooks simply not working.
+
+Because hooks are therefore synchronous, they sit in the path of the operation that triggered them. This script forks and detaches its own render instead, keeping the hook near 50ms rather than putting `git`, `jq` and a Python width pass on Codex's critical path.
+
+Timeouts are clamped (3s on `SessionEnd`), so the generated hooks use `timeout: 3` and Codex has nothing to complain about.
+
+### The feature flag
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
-**Codex silently ignores `hooks.json` entirely without this.** Nothing warns, nothing logs at the default level, and every other part of the wiring reports as correct, so the only symptom is that no hook ever runs. `init` sets it, `doctor` checks it, and an existing explicit `false` is reported rather than overridden.
+**This defaults to `true`**, so the usual correct action is to write nothing at all; `init` leaves `config.toml` untouched unless there is something to repair. It reports an explicit `false` rather than overriding it, and migrates the deprecated `codex_hooks` spelling to `hooks` if it finds one, which is what stops Codex printing a deprecation banner on every start.
 
-Uninstall deliberately leaves it alone: it is a Codex-wide toggle, so clearing it would silently break every other hook you have.
+Note `config.toml` also accepts an unrelated top-level `hooks = "<path>"` naming a hooks file. That is not this flag, and neither `init` nor `doctor` will touch it.
 
-### Hooks run synchronously
-
-`async` appears in the hook schema but is reserved and documented as not yet supported, so a hook sits directly in the path of the operation that triggered it. The eager refresh on turn boundaries is therefore forked and detached by this script rather than left to a flag Codex ignores, which keeps the hook at roughly 50ms instead of a full render with `git`, `jq` and a Python width pass on Codex's critical path.
+Uninstall deliberately leaves the flag alone: it is a Codex-wide toggle, so clearing it would silently break every other hook you have.
 
 ### Surface: tmux status bar
 
@@ -172,8 +180,9 @@ Run `kanagawa-codex doctor` first. It distinguishes the three states that otherw
 
 | Doctor says | Meaning |
 |---|---|
-| `hook has NEVER fired` | Codex is not invoking the hook. Almost always `[features] codex_hooks` missing from `config.toml`, or Codex not restarted since it was set. |
-| `[features] codex_hooks is NOT set` | The cause of the above. Run `kanagawa-codex init`, then restart Codex. |
+| `hook has NEVER fired` | Codex is not invoking the hook. Check the `async` line below first, then that Codex was restarted (hooks load at startup). |
+| `hooks.json contains an "async" field` | Codex is skipping those events outright. Run `kanagawa-codex init` to migrate the file, then restart Codex. |
+| `hook last fired` but no live session | Normal right after a session ends: `SessionEnd` clears the descriptor by design. If it persists, only `SessionEnd` is firing and the other events are being skipped. |
 | `hook last fired: Nm ago` but no live session | The hook ran and died partway. The lines beneath name the cause. |
 | `could not find jq in Codex's PATH` | Codex spawned the hook with a PATH that omits your package manager's prefix. |
 
