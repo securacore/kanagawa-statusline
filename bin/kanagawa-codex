@@ -166,6 +166,7 @@ model_display() { # <slug>
 # "codex-cli 0.147.0", so keep only the semver.
 codex_version() {
   local cache="$STATE_DIR/codex-version" age=999999 v
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
   if [ -f "$cache" ]; then
     age=$(( $(date +%s) - $(file_mtime "$cache") ))
     [ "$age" -lt 86400 ] && { cat "$cache"; return 0; }
@@ -469,13 +470,17 @@ cmd_hook() {
     + (if $pane  != "" then { pane: $pane }            else {} end)
   ' > "$d.tmp" 2>/dev/null && mv "$d.tmp" "$d"
 
-  # Eager refresh so the line moves the instant a turn boundary lands,
-  # rather than waiting out the poll interval.
-  local key out
+  # Eager refresh so the line moves the instant a turn boundary lands, but
+  # detached. Codex runs hooks synchronously and `async` is not implemented,
+  # so a render on this path would put jq, git and a python width pass
+  # directly in the way of every tool call. Same fork-and-forget shape the
+  # statusline uses for its update probe.
+  local key
   key=$(cache_key "${TMUX_PANE:-}")
-  if out=$(do_render "${TMUX_PANE:-}" 2>/dev/null); then
-    write_line_cache "$key" "$out" || true
-  fi
+  (
+    r_out=$(do_render "${TMUX_PANE:-}" 2>/dev/null) && write_line_cache "$key" "$r_out"
+  ) >/dev/null 2>&1 </dev/null &
+  disown 2>/dev/null || true
   return 0
 }
 
@@ -598,6 +603,10 @@ cmd_init() {
     info "wrote $hooks_file"
   fi
 
+  # Without this the file above is inert, so it is part of wiring, not an
+  # optional extra.
+  ensure_hooks_flag
+
   printf '\n'
   if [ "$want_tmux" -eq 1 ]; then
     cat <<EOF
@@ -622,21 +631,69 @@ EOF
   fi
 }
 
+# No `async` field. It is reserved and documented as not yet supported, so
+# setting it bought nothing and misled this script's own design: hooks run
+# synchronously, on Codex's critical path. cmd_hook detaches its render
+# itself rather than relying on a flag Codex ignores.
 print_hooks_json() { # <self-path>
   local self=$1
   jq -n --arg cmd "$self hook" '
-    { hooks: (
+    { description: "kanagawa-statusline: feed the Codex statusline renderer",
+      hooks: (
         [ "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd" ]
         | map({ key: ., value: [ { hooks: [ { type: "command",
                                               command: $cmd,
-                                              async: true,
                                               timeout: 5 } ] } ] })
         | from_entries
       ) }'
 }
 
+# Codex silently ignores hooks.json unless this flag is set. Nothing warns,
+# nothing logs on the default level, and every other piece of the wiring
+# reports as correct — so a missing flag presents exactly as "my hooks do
+# not work" with no thread to pull.
+#
+# Editing someone's config.toml is not something to do casually, so this is
+# conservative: it never rewrites an existing value, it backs the file up
+# first, and it appends a well-formed table rather than attempting a general
+# TOML rewrite. `[features]` is matched exactly so `[features.foo]` cannot be
+# mistaken for it.
+ensure_hooks_flag() {
+  local f="$CODEX_CONFIG" tmp
+  if [ -f "$f" ] && grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" 2>/dev/null; then
+    local cur
+    cur=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$f" | tail -1 | cut -d= -f2- | tr -d ' ') || true
+    if [ "$cur" = "true" ]; then
+      info "[features] codex_hooks = true already set"
+    else
+      warn "[features] codex_hooks = $cur in $f — hooks will NOT fire until it is true"
+    fi
+    return 0
+  fi
+
+  if [ ! -f "$f" ]; then
+    mkdir -p "$(dirname "$f")"
+    printf '[features]\ncodex_hooks = true\n' > "$f"
+    info "created $f with [features] codex_hooks = true"
+    return 0
+  fi
+
+  cp "$f" "$f.bak" 2>/dev/null || true
+  tmp="$f.kanagawa.tmp"
+  if grep -qE '^[[:space:]]*\[features\][[:space:]]*$' "$f"; then
+    awk '{ print }
+         /^[[:space:]]*\[features\][[:space:]]*$/ && !done { print "codex_hooks = true"; done=1 }' \
+      "$f" > "$tmp" && mv "$tmp" "$f"
+    info "added codex_hooks = true to the existing [features] table (backup: $f.bak)"
+  else
+    printf '\n[features]\ncodex_hooks = true\n' >> "$f"
+    info "appended [features] codex_hooks = true to $f (backup: $f.bak)"
+  fi
+}
+
 cmd_doctor() {
   local ok=1 sl d v
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
   printf 'kanagawa-codex doctor\n\n'
 
   for c in jq bash; do
@@ -659,24 +716,43 @@ cmd_doctor() {
     warn "hooks not wired — run: kanagawa-codex init"; ok=0
   fi
 
+  # The single most common reason a correct hooks.json does nothing.
+  # `|| true` is load-bearing: grep exits 1 on no-match and 2 on a missing
+  # file, and pipefail turns either into an assignment failure that set -e
+  # treats as fatal. Doctor's whole job is running when things are missing,
+  # so every probe here must survive absence.
+  local flag
+  flag=$(grep -E '^[[:space:]]*codex_hooks[[:space:]]*=' "$CODEX_CONFIG" 2>/dev/null \
+         | tail -1 | cut -d= -f2- | tr -d ' ') || true
+  if [ "$flag" = "true" ]; then
+    info "[features] codex_hooks = true"
+  elif [ -n "$flag" ]; then
+    warn "[features] codex_hooks = $flag — hooks are DISABLED; set it to true"; ok=0
+  else
+    warn "[features] codex_hooks is NOT set in $CODEX_CONFIG"
+    warn "  Codex silently ignores hooks.json without it — run: kanagawa-codex init"; ok=0
+  fi
+
   info "state dir: $STATE_DIR"
 
   # Distinguishes "Codex never called us" from "Codex called us and we died",
   # which is the single most useful bit when nothing is being recorded.
   if [ -f "$STATE_DIR/last-hook" ]; then
-    local lf hook_jq
-    lf=$(grep -E '^last_fire=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2)
-    hook_jq=$(grep -E '^jq=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2-)
+    local lf hook_jq hook_path
+    lf=$(grep -E '^last_fire=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2) || true
+    hook_jq=$(grep -E '^jq=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2-) || true
+    hook_path=$(grep -E '^PATH=' "$STATE_DIR/last-hook" 2>/dev/null | cut -d= -f2-) || true
     if [[ "$lf" =~ ^[0-9]+$ ]] && [ "$lf" -gt 0 ]; then
       info "hook last fired: $(( ( $(date +%s) - lf ) / 60 ))m ago"
     fi
     if [ "$hook_jq" = "MISSING" ]; then
       warn "  the hook could not find jq in Codex's PATH — that is why nothing is recorded"
-      warn "  hook PATH was: $(grep -E '^PATH=' "$STATE_DIR/last-hook" | cut -d= -f2-)"
+      warn "  hook PATH was: $hook_path"
     fi
   else
     warn "hook has NEVER fired — Codex is not invoking it"
-    warn "  check: jq '.hooks' $CODEX_HOME/hooks.json, and that [features] hooks is not false"
+    warn "  most likely the codex_hooks flag above; Codex must also be restarted"
+    warn "  after enabling it, since hooks load at startup"
   fi
 
   if d=$(pick_descriptor) && [ -n "$d" ]; then
@@ -720,6 +796,10 @@ kanagawa-codex uninstall — this will remove:
 
 Not touched: your tmux config (remove the status-right line yourself),
 statusline.sh, and the shared variant config.
+
+Also left alone: [features] codex_hooks in config.toml. It is a Codex-wide
+toggle, not ours — clearing it would silently break every other hook you
+have. Remove it yourself if nothing else uses hooks.
 EOF
   if [ "${1:-}" != "--yes" ] && [ "${1:-}" != "-y" ]; then
     printf '\nProceed? [y/N] '

@@ -53,11 +53,27 @@ Finding the newest rollout under `~/.codex/sessions` by mtime would drop the hoo
 ## Setup
 
 ```bash
-kanagawa-codex init --tmux    # writes ~/.codex/hooks.json, prints the tmux snippet
+kanagawa-codex init --tmux    # writes ~/.codex/hooks.json + enables the flag below
 kanagawa-codex doctor         # verify the wiring end to end
+# then restart Codex — hooks load at startup
 ```
 
-`init` writes hook entries for `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop` and `SessionEnd`, all `async: true` so Codex is never delayed waiting on a render. An existing `hooks.json` that does not mention `kanagawa-codex` is never rewritten; the snippet is printed for you to merge.
+`init` writes hook entries for `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop` and `SessionEnd`. An existing `hooks.json` that does not mention `kanagawa-codex` is never rewritten; the snippet is printed for you to merge.
+
+### The flag that makes hooks real
+
+```toml
+[features]
+codex_hooks = true
+```
+
+**Codex silently ignores `hooks.json` entirely without this.** Nothing warns, nothing logs at the default level, and every other part of the wiring reports as correct, so the only symptom is that no hook ever runs. `init` sets it, `doctor` checks it, and an existing explicit `false` is reported rather than overridden.
+
+Uninstall deliberately leaves it alone: it is a Codex-wide toggle, so clearing it would silently break every other hook you have.
+
+### Hooks run synchronously
+
+`async` appears in the hook schema but is reserved and documented as not yet supported, so a hook sits directly in the path of the operation that triggered it. The eager refresh on turn boundaries is therefore forked and detached by this script rather than left to a flag Codex ignores, which keeps the hook at roughly 50ms instead of a full render with `git`, `jq` and a Python width pass on Codex's critical path.
 
 ### Surface: tmux status bar
 
@@ -156,7 +172,8 @@ Run `kanagawa-codex doctor` first. It distinguishes the three states that otherw
 
 | Doctor says | Meaning |
 |---|---|
-| `hook has NEVER fired` | Codex is not invoking the hook. Check `jq '.hooks' ~/.codex/hooks.json` and that `[features] hooks` is not `false`. |
+| `hook has NEVER fired` | Codex is not invoking the hook. Almost always `[features] codex_hooks` missing from `config.toml`, or Codex not restarted since it was set. |
+| `[features] codex_hooks is NOT set` | The cause of the above. Run `kanagawa-codex init`, then restart Codex. |
 | `hook last fired: Nm ago` but no live session | The hook ran and died partway. The lines beneath name the cause. |
 | `could not find jq in Codex's PATH` | Codex spawned the hook with a PATH that omits your package manager's prefix. |
 
