@@ -238,6 +238,32 @@ codex_approval() {
 
 codex_effort() { codex_scalar model_reasoning_effort; }
 
+# Resolved by recency, not by a fixed precedence.
+#
+# The descriptor is authoritative for a session, and config.toml is global —
+# so neither wins outright. `/model` writes config.toml mid-session, which is
+# why effort (read live) updated instantly while model (read from the cached
+# descriptor) stayed stale until the next hook fired. Comparing mtimes gives
+# the intended behaviour in both directions: a mid-session change is picked
+# up at once, and two concurrent sessions on different models each keep their
+# own, because their descriptors are newer than the shared config.
+codex_model() { # <descriptor>
+  local d=$1 from_desc from_conf dm cm
+  from_desc=$(jq -r '.model // ""' "$d" 2>/dev/null) || from_desc=""
+  from_conf=$(codex_scalar model)
+
+  [ -n "$from_conf" ] || { printf '%s' "$from_desc"; return 0; }
+  [ -n "$from_desc" ] || { printf '%s' "$from_conf"; return 0; }
+
+  dm=$(file_mtime "$d")
+  cm=$(file_mtime "$CODEX_CONFIG")
+  if [[ "$cm" =~ ^[0-9]+$ ]] && [[ "$dm" =~ ^[0-9]+$ ]] && (( cm > dm )); then
+    printf '%s' "$from_conf"
+  else
+    printf '%s' "$from_desc"
+  fi
+}
+
 # ── context accounting ──────────────────────────────────────────────────
 #  ⚠ THE SWAP POINT ⚠
 #
@@ -352,7 +378,7 @@ cache_key() { # [pane]
 # the whole adapter: everything downstream is the unmodified renderer.
 build_payload() { # <descriptor>
   local d=$1 model cwd tp display effort ver style pct win usage
-  model=$(jq -r '.model // ""' "$d" 2>/dev/null) || model=""
+  model=$(codex_model "$d")
   cwd=$(jq -r '.cwd // ""' "$d" 2>/dev/null) || cwd=""
   tp=$(jq -r '.transcript_path // ""' "$d" 2>/dev/null) || tp=""
 
@@ -760,6 +786,103 @@ ensure_hooks_flag() {
   esac
 }
 
+# ── native status line ──────────────────────────────────────────────────
+# Codex's own footer, ordered to match this project's layout. No renderer, no
+# hooks, no surface, no multiplexer: Codex draws it, in Codex's colors.
+#
+# Ordered left-to-right the way the kanagawa line reads — context, model and
+# reasoning, directory, branch — so the two convey the same information in the
+# same sequence and switching between them costs no relearning.
+#
+# The ids are version-specific and explicitly not guaranteed stable upstream,
+# and they cannot be validated from here. Hence: back up first, print exactly
+# what was written, accept an override, and point at the one authority that is
+# always correct for the running version, which is `/statusline` inside Codex.
+NATIVE_ITEMS_DEFAULT="model-with-reasoning,current-dir,git-branch,context-usage,used-tokens,approval-mode,codex-version"
+NATIVE_TITLE_DEFAULT="project,git-branch,task-progress"
+
+# Rewrites one single-line key inside a TOML table, creating the table if it
+# is absent. Multi-line arrays are refused rather than mangled.
+toml_set_array() { # <file> <table> <key> <comma-list>
+  local f=$1 table=$2 key=$3 list=$4 tmp items rendered
+  items=$(printf '%s' "$list" | tr ',' '\n' | sed '/^[[:space:]]*$/d')
+  rendered=$(printf '%s' "$items" | sed 's/^[[:space:]]*/"/; s/[[:space:]]*$/"/' | paste -sd, - )
+  rendered="[$rendered]"
+
+  if [ -f "$f" ] && grep -qE "^[[:space:]]*$key[[:space:]]*=[[:space:]]*\[[^]]*$" "$f"; then
+    warn "$key in $f spans multiple lines — edit it by hand:"
+    warn "  $key = $rendered"
+    return 1
+  fi
+
+  tmp="$f.kanagawa.tmp"
+  if [ ! -f "$f" ]; then
+    mkdir -p "$(dirname "$f")"
+    printf '[%s]\n%s = %s\n' "$table" "$key" "$rendered" > "$f"
+    return 0
+  fi
+
+  cp "$f" "$f.bak" 2>/dev/null || true
+  # Drop any existing single-line assignment, then place the new one.
+  grep -vE "^[[:space:]]*$key[[:space:]]*=" "$f" > "$tmp" || true
+  if grep -qE "^[[:space:]]*\[$table\][[:space:]]*$" "$tmp"; then
+    # Literal comparison, not a regex match: "[tui]" interpolated into an awk
+    # regex is a character class matching a single t, u or i, so the header
+    # never matches and the insert silently does nothing.
+    awk -v tbl="[$table]" -v line="$key = $rendered" '
+      { print }
+      !done { t=$0; gsub(/^[ \t]+|[ \t]+$/, "", t); if (t == tbl) { print line; done=1 } }' \
+      "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
+  else
+    printf '\n[%s]\n%s = %s\n' "$table" "$key" "$rendered" >> "$tmp"
+  fi
+  mv "$tmp" "$f"
+}
+
+cmd_native() {
+  need jq
+  local dry=0 items="$NATIVE_ITEMS_DEFAULT" title="$NATIVE_TITLE_DEFAULT"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run)  dry=1; shift ;;
+      --items)    items=${2:-}; shift 2 ;;
+      --title)    title=${2:-}; shift 2 ;;
+      --no-title) title=""; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local rendered
+  rendered=$(printf '%s' "$items" | tr ',' '\n' | sed '/^[[:space:]]*$/d' \
+             | sed 's/^[[:space:]]*/"/; s/[[:space:]]*$/"/' | paste -sd, -)
+  printf 'Codex native status line — writes to %s\n\n' "$CODEX_CONFIG"
+  printf '  [tui]\n  status_line = [%s]\n' "$rendered"
+  [ -n "$title" ] && printf '  terminal_title = [%s]\n' \
+    "$(printf '%s' "$title" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*/"/; s/[[:space:]]*$/"/' | paste -sd, -)"
+  printf '\n'
+
+  if [ "$dry" = "1" ]; then
+    info "dry run — nothing written"
+    return 0
+  fi
+
+  toml_set_array "$CODEX_CONFIG" tui status_line "$items" || return 1
+  [ -n "$title" ] && { toml_set_array "$CODEX_CONFIG" tui terminal_title "$title" || true; }
+  info "written (backup: $CODEX_CONFIG.bak)"
+
+  cat <<EOF
+
+Restart Codex to pick it up.
+
+If Codex warns about an unknown item, the id set differs in your version.
+Run /statusline inside Codex to see the ids it actually accepts, then:
+
+  kanagawa-codex native --items "id1,id2,id3"
+
+To revert:  mv $CODEX_CONFIG.bak $CODEX_CONFIG
+EOF
+}
+
 cmd_doctor() {
   local ok=1 sl d v
   mkdir -p "$STATE_DIR" 2>/dev/null || true
@@ -945,7 +1068,15 @@ Codex has no command-backed status line (openai/codex#17827), so the line is
 rendered beside its TUI rather than inside it: tmux's status bar, or a
 dedicated one-line pane.
 
+Two ways to get the information, and they compose:
+
+  native   Codex's own footer, ordered to match this layout. No hooks, no
+           surface, no tmux. Codex's colors, always available.
+  line     the full kanagawa render, drawn beside the TUI in tmux or a pane.
+
 usage:
+  kanagawa-codex native [--dry-run]   order Codex's built-in status line
+                        [--items "a,b,c"] [--title "a,b"] [--no-title]
   kanagawa-codex init [--tmux]        wire Codex hooks; --tmux prints the
                                       tmux status-right snippet
   kanagawa-codex line [--pane ID]     cached line, re-rendered when stale
@@ -978,6 +1109,7 @@ EOF
 }
 
 case "${1:-}" in
+  native)            shift; cmd_native "$@" ;;
   hook)              shift; cmd_hook "$@" ;;
   line)              shift; cmd_line "$@" ;;
   render)            shift; cmd_render "$@" ;;

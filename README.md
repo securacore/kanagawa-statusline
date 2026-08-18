@@ -55,7 +55,8 @@ kanagawa-statusline uninstall   # remove all installed files
 Codex exposes no `statusLine.command` equivalent — `tui.status_line` only reorders built-in items ([openai/codex#17827](https://github.com/openai/codex/issues/17827)). `kanagawa-codex` bridges Codex's hooks to the same renderer and draws the result onto a surface Codex does not own:
 
 ```bash
-kanagawa-codex init --tmux    # wire hooks, print the tmux snippet
+kanagawa-codex native         # order Codex's built-in footer — no dependencies
+kanagawa-codex init --tmux    # the full kanagawa line beside the TUI — needs tmux
 kanagawa-codex doctor         # verify end to end
 ```
 

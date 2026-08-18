@@ -17,7 +17,26 @@ System: Permissions · ApprovalMode · CodexVersion · SessionId
 
 There is no way to put an external renderer's output in that footer. The upstream request is [openai/codex#17827](https://github.com/openai/codex/issues/17827), open since 2026-04-14 ([#20244](https://github.com/openai/codex/issues/20244) was closed as a duplicate).
 
-So the line renders **beside** Codex's TUI rather than inside it, onto a surface Codex does not own: tmux's status bar, or a dedicated one-line pane.
+So the full kanagawa line renders **beside** Codex's TUI rather than inside it, onto a surface Codex does not own: tmux's status bar, or a dedicated one-line pane.
+
+## Two modes, and they compose
+
+| | `kanagawa-codex native` | `kanagawa-codex line` |
+|---|---|---|
+| Draws | inside Codex's footer | beside the TUI |
+| Needs | nothing | tmux or a spare pane |
+| Colors | Codex's | full kanagawa palette |
+| Content | Codex's built-in items, ordered to match this layout | every segment, including langs and the logos anchor |
+| Breaks when | Codex renames an item id | never silently; `doctor` reports it |
+
+```bash
+kanagawa-codex native      # information, everywhere, zero dependencies
+kanagawa-codex init --tmux # the themed line, where a multiplexer exists
+```
+
+Running both is the intended setup: native as the always-present baseline, the themed line when you happen to be in tmux. **The multiplexer requirement is structural, not incidental** — a full-screen TUI plus an external line needs something that can split the viewport, and nothing in this project can change that. Native mode exists so the dependency is a preference rather than a precondition.
+
+Item ids are version-specific and upstream does not guarantee them across releases, so `native` backs up `config.toml`, prints exactly what it wrote, and takes `--items` to override. `/statusline` inside Codex lists the ids your version actually accepts.
 
 ## Architecture
 
@@ -106,7 +125,7 @@ No tmux at all is possible with `watch` in any spare terminal, though nothing th
 | Segment | Claude Code | Codex |
 |---|---|---|
 | ctx % | `context_window.used_percentage` | parsed from the rollout transcript, **omitted when unknown** |
-| model | `model.display_name` | hook `model` slug, mapped to a display name |
+| model | `model.display_name` | hook `model` slug or `config.toml`, whichever is newer |
 | effort | `effort.level` | `model_reasoning_effort` from `config.toml` |
 | cwd | `workspace.project_dir` | hook `cwd` |
 | branch / dirty | derived from cwd | unchanged |

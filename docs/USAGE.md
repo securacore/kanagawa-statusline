@@ -145,12 +145,15 @@ echo
 
 The same statusline for [OpenAI Codex](https://developers.openai.com/codex), via `kanagawa-codex`.
 
-Codex has no command-backed status line, so the line renders beside its TUI rather than inside it. Setup:
+Codex has no command-backed status line, so there are two modes and they compose:
 
 ```bash
-kanagawa-codex init --tmux    # wire Codex hooks, print the tmux snippet
+kanagawa-codex native         # order Codex's own footer — no deps, Codex's colors
+kanagawa-codex init --tmux    # the full kanagawa line beside the TUI — needs tmux
 kanagawa-codex doctor         # verify the wiring end to end
 ```
+
+`native` needs nothing installed and renders inside Codex. The themed line needs a multiplexer, because a full-screen TUI leaves nowhere else to draw.
 
 ```bash
 kanagawa-codex line [--pane ID]   cached line, re-rendered when stale (tmux calls this)
