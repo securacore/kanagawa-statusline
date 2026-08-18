@@ -809,7 +809,7 @@ toml_set_array() { # <file> <table> <key> <comma-list>
   rendered=$(printf '%s' "$items" | sed 's/^[[:space:]]*/"/; s/[[:space:]]*$/"/' | paste -sd, - )
   rendered="[$rendered]"
 
-  if [ -f "$f" ] && grep -qE "^[[:space:]]*$key[[:space:]]*=[[:space:]]*\[[^]]*$" "$f"; then
+  if [ -f "$f" ] && grep -qE "^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\[[^]]*$" "$f"; then
     warn "$key in $f spans multiple lines — edit it by hand:"
     warn "  $key = $rendered"
     return 1
@@ -824,7 +824,7 @@ toml_set_array() { # <file> <table> <key> <comma-list>
 
   cp "$f" "$f.bak" 2>/dev/null || true
   # Drop any existing single-line assignment, then place the new one.
-  grep -vE "^[[:space:]]*$key[[:space:]]*=" "$f" > "$tmp" || true
+  grep -vE "^[[:space:]]*${key}[[:space:]]*=" "$f" > "$tmp" || true
   if grep -qE "^[[:space:]]*\[$table\][[:space:]]*$" "$tmp"; then
     # Literal comparison, not a regex match: "[tui]" interpolated into an awk
     # regex is a character class matching a single t, u or i, so the header
