@@ -270,7 +270,7 @@ EOF
     mkdir -p "$CACHE_DIR" && printf '%s' "$rv" > "$CACHE_DIR/latest-version"
     ;;
   -h|--help|help)
-    cat <<EOF
+    cat <<'EOF'
 kanagawa-statusline — switch Kanagawa variant for the Claude Code statusline.
 
 usage:
@@ -293,7 +293,7 @@ usage:
   kanagawa-statusline -h                this help
 
 config file:
-  \$XDG_CONFIG_HOME/kanagawa-statusline/config
+  $XDG_CONFIG_HOME/kanagawa-statusline/config
   (defaults to ~/.config/kanagawa-statusline/config)
 
 env overrides:
