@@ -34,11 +34,10 @@ version:
 lint:
     @command -v shellcheck >/dev/null 2>&1 \
         || { echo "shellcheck not installed (brew install shellcheck)"; exit 1; }
-    shellcheck -S warning statusline.sh install.sh bin/kanagawa-statusline bin/kanagawa-codex
+    shellcheck -S warning statusline.sh install.sh bin/kanagawa-statusline
     bash -n statusline.sh
     bash -n install.sh
     bash -n bin/kanagawa-statusline
-    bash -n bin/kanagawa-codex
     @echo "lint ok"
 
 # Symlink the installed paths at this repo so edits land in Claude Code live.
@@ -76,7 +75,6 @@ link:
     }
     link_one "$HOME/.claude/statusline-command.sh"   "$repo/statusline.sh"
     link_one "$HOME/.local/bin/kanagawa-statusline"  "$repo/bin/kanagawa-statusline"
-    link_one "$HOME/.local/bin/kanagawa-codex"       "$repo/bin/kanagawa-codex"
 
     # Restore / create the .statusLine block in settings.json so Claude
     # Code actually picks the symlinked script up.
@@ -145,7 +143,6 @@ unlink:
     }
     unlink_one "$HOME/.claude/statusline-command.sh"   "$repo/statusline.sh"
     unlink_one "$HOME/.local/bin/kanagawa-statusline"  "$repo/bin/kanagawa-statusline"
-    unlink_one "$HOME/.local/bin/kanagawa-codex"       "$repo/bin/kanagawa-codex"
 
     if [ -f "$state_file" ]; then
       echo

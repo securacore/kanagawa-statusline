@@ -141,37 +141,6 @@ echo
 
 `STATUSLINE_DEMO=1` forces all 7 lang segments to render with placeholder versions, useful for previewing palettes.
 
-## Codex
-
-The same statusline for [OpenAI Codex](https://developers.openai.com/codex), via `kanagawa-codex`.
-
-Codex has no command-backed status line, so there are two modes and they compose:
-
-```bash
-kanagawa-codex native         # order Codex's own footer — no deps, Codex's colors
-kanagawa-codex init --tmux    # the full kanagawa line beside the TUI — needs tmux
-kanagawa-codex doctor         # verify the wiring end to end
-```
-
-`native` needs nothing installed and renders inside Codex. The themed line needs a multiplexer, because a full-screen TUI leaves nowhere else to draw.
-
-```bash
-kanagawa-codex line [--pane ID]   cached line, re-rendered when stale (tmux calls this)
-kanagawa-codex render [--width N] force one render to stdout
-kanagawa-codex watch [-n SECS]    redraw loop for a dedicated pane
-kanagawa-codex uninstall [-y]     remove hooks + state
-```
-
-Both harnesses read the same config file, so `kanagawa-statusline dragon` re-themes Claude Code and Codex together.
-
-The ctx % segment needs a context window size that Codex does not report. Pin it, or the segment stays hidden:
-
-```
-CODEX_CTX_WINDOW=272000
-```
-
-Architecture, the full segment mapping and the context-percentage caveat: [CODEX.md](CODEX.md).
-
 ## Uninstall
 
 ```bash
@@ -185,8 +154,10 @@ Removes:
 - `~/.config/kanagawa-statusline/`
 - `~/.cache/kanagawa-statusline/` (update-check cache)
 - statusline runtime caches in `$TMPDIR`
-- `~/.local/bin/kanagawa-codex`, its Codex hook entries and its state (if installed)
+- `~/.local/bin/kanagawa-codex`, its hook entries and its state (legacy, if still installed)
 - the `statusLine` block in `~/.claude/settings.json`, **only** when it references this script
 
 > [!IMPORTANT]
-> A `statusLine` block pointing at something else is left untouched, as is any `~/.codex/hooks.json` entry that is not ours. Your tmux config is never edited — remove the `status-right` line yourself.
+> A `statusLine` block pointing at something else is left untouched, as is any `~/.codex/hooks.json` entry that is not ours.
+
+Codex support shipped in 0.0.15-0.0.21 and has since been removed. Uninstall still strips the hook entries it wired, so installs from that window clean up. Your tmux config is never edited: if you ran `kanagawa-codex init --tmux`, remove the `status-right` line yourself.

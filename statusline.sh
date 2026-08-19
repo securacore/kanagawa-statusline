@@ -115,10 +115,10 @@ proj=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .cwd // ""')
 ver=$(printf '%s'  "$input" | jq -r '.version // ""')
 style=$(printf '%s' "$input" | jq -r '(.output_style.name // .output_style // "") | if type=="string" then . else "" end' | tr -d '\n\r')
 # Empty, not 0, when the host omits it. Claude Code always sends this field,
-# so an absent value means the caller genuinely has no context figure (the
-# Codex adapter, when transcript token accounting comes up empty). Rendering
-# "0%" there would assert a fresh context window rather than an unknown one;
-# the segment skips instead, matching how caveman and logos degrade.
+# so an absent value means the caller genuinely has no context figure to give.
+# Rendering "0%" there would assert a fresh context window rather than an
+# unknown one; the segment skips instead, matching how caveman and logos
+# degrade.
 ctx_pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // ""')
 ctx_size_raw=$(printf '%s' "$input" | jq -r '.context_window.context_window_size // 0')
 
